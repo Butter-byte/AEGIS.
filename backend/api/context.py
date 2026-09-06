@@ -1,50 +1,34 @@
-"""AppContext — the composed object graph, built once at startup (Vikash).
+"""AppContext — the composed object graph, built once at startup.
 
-Constructor injection, no DI framework. `backend/main.py` builds one and stashes
-it on `app.state.ctx`; routes read it from there.
+Simple constructor injection. No DI framework, no service container (ponytail).
+`main.py` builds one and stashes it on `app.state.ctx`; routes read it from there.
 
-`api/` imports only `models`, `state`, `pipeline`, `events`, `config`. It does
-NOT import `execution/` — the Executor is owned by the Pipeline (the only caller
-of execution).
-
-Teammate ports default to unset: the pipeline reports `module_not_wired` for the
-matching endpoints until `main.py` (or a test) injects a real module or a fake.
+`api/` imports only `models`, `state`, `pipeline`, `config` (ARCHITECTURE §8).
+The Executor is owned by the Pipeline (invariant 10), so it is not referenced
+here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 
-from backend.events.broadcaster import Broadcaster
-from backend.models.safety import PolicyConfig
+from backend.api.ws import Broadcaster
+from backend.config import DEFAULT_POLICY
 from backend.models.state import NetworkState
-from backend.pipeline.orchestrator import Pipeline
-from backend.pipeline.ports import (
-    Diagnoser,
-    DigitalTwin,
-    FaultInjector,
-    NetworkModel,
-    RecoveryPlanner,
-    SafetyGate,
-    SeedSource,
-    TelemetrySource,
-)
+from backend.pipeline import Pipeline
 from backend.state.manager import StateManager
-from backend.state.seed import ScaffoldSeedSource
+from backend.network.simulator import build_seed
+from backend.telemetry import TelemetryEngine
+from backend.faults import FaultInjector
+from backend.ai import HeuristicPlanner
+from backend.simulation.twin import DigitalTwin
+from backend.safety import SafetyEngine
 
-
-@dataclass
-class Ports:
-    """Every teammate-owned dependency. Any left None => that endpoint 501s."""
-
-    seed_source: SeedSource = field(default_factory=ScaffoldSeedSource)
-    network_model: NetworkModel | None = None
-    telemetry: TelemetrySource | None = None
-    faults: FaultInjector | None = None
-    diagnoser: Diagnoser | None = None
-    planner: RecoveryPlanner | None = None
-    twin: DigitalTwin | None = None
-    safety: SafetyGate | None = None
+# Single seed source for the running simulator. Nothing else constructs the
+# canonical live NetworkState.
+SeedFactory = Callable[[], NetworkState]
+_seed_factory: SeedFactory = build_seed
 
 
 @dataclass
@@ -52,33 +36,39 @@ class AppContext:
     state: StateManager
     pipeline: Pipeline
     broadcaster: Broadcaster
-    ports: Ports
+    seed_factory: SeedFactory
+    faults: FaultInjector
+    telemetry: TelemetryEngine
 
     @classmethod
-    def build(cls, ports: Ports | None = None, policy: PolicyConfig | None = None) -> "AppContext":
-        ports = ports or Ports()
-        state = StateManager(ports.seed_source.build_seed())
+    def build(cls, seed_factory: SeedFactory = _seed_factory) -> "AppContext":
+        state = StateManager(seed_factory())
         broadcaster = Broadcaster()
 
         # StateManager notifies the broadcaster on every committed mutation.
-        state.subscribe(
-            lambda snap: broadcaster.publish("state", {"state": snap.model_dump(mode="json")}, snap.version)
-        )
+        state.subscribe(lambda snapshot: broadcaster.publish(
+            "state",
+            {"state": snapshot.model_dump(mode="json")},
+            snapshot.version,
+        ))
+
+        faults = FaultInjector(state)
+        telemetry = TelemetryEngine()
+        planner = HeuristicPlanner()
 
         pipeline = Pipeline(
             state=state,
-            network_model=ports.network_model,
-            telemetry=ports.telemetry,
-            faults=ports.faults,
-            diagnoser=ports.diagnoser,
-            planner=ports.planner,
-            twin=ports.twin,
-            safety=ports.safety,
-            policy=policy or PolicyConfig(),
+            policy=DEFAULT_POLICY,
             publisher=broadcaster.publish,
+            telemetry=telemetry,
+            faults=faults,
+            diagnoser=planner,
+            planner=planner,
+            twin=DigitalTwin(),
+            safety=SafetyEngine(),
         )
-        return cls(state=state, pipeline=pipeline, broadcaster=broadcaster, ports=ports)
+        return cls(state=state, pipeline=pipeline, broadcaster=broadcaster, seed_factory=seed_factory, faults=faults, telemetry=telemetry)
 
     def reset_state(self) -> NetworkState:
         """Rebuild the network from the seed (a normal versioned mutation)."""
-        return self.state.reset(self.ports.seed_source.build_seed())
+        return self.state.reset(self.seed_factory())

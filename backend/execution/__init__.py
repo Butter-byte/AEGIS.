@@ -1,6 +1,10 @@
-"""Execution boundary (Vikash) — applies ONLY safety-approved plans, via
-StateManager. Never mutates NetworkState directly, never calls a planner or the
-safety gate, never bypasses approval.
-
-Import from `backend.execution.executor` / `backend.execution.translate` directly.
+"""Execution boundary — applies ONLY safety-approved recovery plans, via
+StateManager. Never mutates NetworkState directly, never calls AI, never
+bypasses safety approval (architecture invariants 5, 10).
 """
+
+from __future__ import annotations
+
+from backend.execution.executor import ExecutionResult, Executor
+
+__all__ = ["Executor", "ExecutionResult"]

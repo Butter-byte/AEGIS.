@@ -1,19 +1,18 @@
-"""StateManager — the single runtime owner of the authoritative NetworkState.
+"""StateManager — owner of the single live NetworkState.
 
-Source of truth: docs/TRD.md §"Authoritative state".
+Source of truth: docs/ARCHITECTURE.md §4.2, docs/TRD.md §2.2.
 
 Invariants enforced here:
   * exactly one live NetworkState (this object holds it)
   * only `apply_actions()` / `reset()` mutate it
-  * callers receive deep copies from `get_state()` — never the live object
+  * callers receive deep copies from `get_state()` / `snapshot()`
   * `version` is monotonic (+1 per committed mutation), never reset
-  * a mutation is atomic: built + fully re-validated on a draft; only a valid
-    result is swapped in, and only then is `version` bumped and subscribers
+  * a mutation is atomic: it is built and fully re-validated on a draft; only a
+    valid result is swapped in and only then is `version` bumped and subscribers
     notified. A failed mutation leaves the live state untouched.
 
-No locking: single worker, mutations run on the event loop.
-<!-- ponytail: single-writer relies on one uvicorn worker; add asyncio.Lock only
-     if we ever run multiple workers, which the MVP will not -->
+No locking: single worker, mutations run on the event loop (ponytail ceiling —
+add asyncio.Lock only if we ever run multiple workers).
 """
 
 from __future__ import annotations
@@ -43,9 +42,10 @@ class StateManager:
     def __init__(self, seed: NetworkState) -> None:
         self._state: NetworkState = seed.model_copy(deep=True)
         self._subscribers: list[Subscriber] = []
+        # last-resort visibility into broken subscribers (see _notify)
         self._subscriber_errors: list[Exception] = []
 
-    # --- reads ----------------------------------------------------------
+    # --- reads ---------------------------------------------------------------
 
     def current_version(self) -> int:
         return self._state.version
@@ -54,22 +54,26 @@ class StateManager:
         """Deep copy — callers cannot mutate the live state through it."""
         return self._state.model_copy(deep=True)
 
+    # `snapshot` is the name used in the architecture docs.
     snapshot = get_state
 
-    # --- subscriptions ------------------------------------------------
+    # --- subscriptions -----------------------------------------------------
 
     def subscribe(self, callback: Subscriber) -> None:
         self._subscribers.append(callback)
 
     def _notify(self) -> None:
+        # A committed mutation must not be undone by a broken subscriber, so
+        # subscriber failures are isolated: the mutation stands, other
+        # subscribers still fire, and apply_actions() still returns normally.
         snap = self._state.model_copy(deep=True)
         for cb in list(self._subscribers):
             try:
                 cb(snap)
-            except Exception as exc:  # noqa: BLE001 - a broken subscriber must not undo a committed mutation
+            except Exception as exc:  # noqa: BLE001 - deliberate isolation
                 self._subscriber_errors.append(exc)
 
-    # --- the single mutation boundary -------------------------------
+    # --- the single mutation boundary ------------------------------------
 
     def apply_actions(self, mutations: list[Mutation], reason: str) -> NetworkState:
         if not mutations:
@@ -112,7 +116,7 @@ class StateManager:
         return self.get_state()
 
     def reset(self, seed: NetworkState) -> NetworkState:
-        """Rebuild from a seed. A normal mutation — version keeps climbing."""
+        """Rebuild from a seed. This is a normal mutation — version keeps climbing."""
         draft = seed.model_dump()
         draft["version"] = self._state.version + 1
         draft["updated_at"] = utcnow()

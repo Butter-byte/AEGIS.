@@ -1,9 +1,11 @@
-"""Error envelope + typed exceptions for the REST boundary.
+"""Error envelope + typed exceptions.
 
-Source of truth: docs/BACKEND_SCHEMA.md §12.
+Source of truth: docs/BACKEND_SCHEMA.md §9.
 
-Every non-2xx REST response is an `ErrorEnvelope`. `AegisError` subclasses carry
-their own HTTP status so `backend/api/errors.py` can map them in one place.
+`not_implemented` (HTTP 501) is a TEMPORARY scaffolding code used while teammate
+modules are stubbed. It is not in the frozen §9 table and should disappear once
+telemetry / faults / ai / twin / safety are wired. Flagged in the Phase 0/1
+report as a schema addition to ratify or remove.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ class ErrorEnvelope(StrictModel):
 
 
 class AegisError(Exception):
-    """Base for errors that map onto the §12 error envelope."""
+    """Base for errors that map cleanly onto the §9 error envelope."""
 
     code = "internal_error"
     http_status = 500
@@ -76,12 +78,8 @@ class InternalError(AegisError):
     http_status = 500
 
 
-class ModuleNotWired(AegisError):
-    """A teammate module is not implemented yet and no fake is installed.
+class NotImplementedYet(AegisError):
+    """TEMPORARY — teammate module not wired yet (see module docstring)."""
 
-    TEMPORARY — present only while `backend/{network,telemetry,faults,diagnosis,
-    recovery,twin,safety}/` are placeholders. Not part of the frozen §12 table.
-    """
-
-    code = "module_not_wired"
+    code = "not_implemented"
     http_status = 501

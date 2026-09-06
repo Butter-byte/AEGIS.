@@ -1,8 +1,4 @@
-"""Closed enumerations. Source of truth: docs/BACKEND_SCHEMA.md §1.2.
-
-These vocabularies are frozen. Adding a member is an additive contract change
-(PR + all four owners). Teammate modules may not introduce values outside these.
-"""
+"""Canonical enums. Source of truth: docs/BACKEND_SCHEMA.md §1.2."""
 
 from __future__ import annotations
 

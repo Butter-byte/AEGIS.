@@ -1,1 +1,3 @@
-"""API layer (Vikash) — REST + WebSocket transport. No domain logic, no state."""
+"""API layer — REST + WebSocket transport. Orchestrates through pipeline / state
+boundaries only; holds no domain logic and no separate state.
+"""

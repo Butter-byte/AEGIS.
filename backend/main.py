@@ -1,17 +1,6 @@
-"""AEGIS backend app assembly (Vikash).
+"""AEGIS backend app assembly.
 
-Run: `uvicorn backend.main:app --workers 1 --port 8000`
-
-The composition root. It wires teammate modules into `Ports` as they land:
-
-    from backend.network import RealSeedSource        # Sahil
-    from backend.telemetry import RealTelemetry       # Sahil
-    ...
-    ports = Ports(seed_source=RealSeedSource(), telemetry=RealTelemetry(), ...)
-
-Until then every teammate port is None and the matching endpoints return
-`module_not_wired` (501). `GET /network/state`, `POST /network/reset` and `/ws`
-work now, against the scaffold seed.
+Run: `uvicorn backend.main:app --workers 1`
 """
 
 from __future__ import annotations
@@ -19,12 +8,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.api import errors, routes, ws
-from backend.api.context import AppContext, Ports
+from backend.api.context import AppContext
 
 
-def create_app(ports: Ports | None = None) -> FastAPI:
+def create_app() -> FastAPI:
     app = FastAPI(title="AEGIS", version="0.1.0")
-    app.state.ctx = AppContext.build(ports=ports)
+    app.state.ctx = AppContext.build()
     errors.install(app)
     app.include_router(routes.router)
     app.include_router(ws.router)

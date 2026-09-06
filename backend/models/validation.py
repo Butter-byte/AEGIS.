@@ -1,17 +1,12 @@
-"""Schema gate for AI output (Vikash).
+"""Schema-validation helpers for AI output.
 
-Source of truth: docs/TRD.md §"AI output boundary".
+Source of truth: docs/TRD.md §2.1.
 
-`parse_diagnosis` / `parse_plan` turn raw dicts (e.g. decoded LLM JSON, or a mock
-planner's output) into canonical models, raising a single `SchemaError` on ANY
-failure so the pipeline never sees a partially-valid structure.
-
-`parse_plan` additionally checks the CLOSED action vocabulary's referenced ids
-against the source NetworkState (existence only — feasibility is the twin's job)
-and that the plan is anchored to the current state version.
-
-This is the structural half of the core invariant: an AI proposal that is not a
-well-formed plan over known ids never advances to the Digital Twin.
+`parse_*` turn raw dicts (e.g. decoded LLM JSON) into canonical models, raising a
+single `SchemaError` on any failure so the pipeline never sees a partially-valid
+structure. `parse_plan` additionally checks the closed vocabulary's referenced
+ids against the source NetworkState (existence only — *feasibility* is the
+Digital Twin's job).
 """
 
 from __future__ import annotations
@@ -23,10 +18,10 @@ from .recovery import (
     DrainNodeAction,
     MigrateServiceAction,
     QuarantineNodeAction,
-    RecoveryPlan,
     RerouteAction,
     ResetLinkAction,
     RestoreNodeAction,
+    RecoveryPlan,
 )
 from .state import NetworkState
 

@@ -1,6 +1,6 @@
-"""Recovery-run request/response contracts — the `/recovery/*` endpoints.
+"""Recovery-run request/response contracts.
 
-Source of truth: docs/BACKEND_SCHEMA.md §10. Owned by the pipeline (Vikash).
+Source of truth: docs/BACKEND_SCHEMA.md §8.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from .diagnosis import Diagnosis
 from .enums import RunOutcome
 from .recovery import RecoveryPlan
 from .safety import SafetyDecision
-from .twin import SimulationResult
+from .simulation import SimulationResult
 
 
 class RunRequest(StrictModel):
@@ -20,7 +20,7 @@ class RunRequest(StrictModel):
 
 
 class PlanRequest(StrictModel):
-    diagnosis_id: str | None = Field(default=None, description="null -> diagnose fresh")
+    diagnosis_id: str | None = None
 
 
 class CandidateResult(StrictModel):

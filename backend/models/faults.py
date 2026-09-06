@@ -1,8 +1,9 @@
-"""Fault contract. Source of truth: docs/BACKEND_SCHEMA.md §4.
+"""Fault contract. Source of truth: docs/BACKEND_SCHEMA.md §7 (Fault) and §8
+(FaultRequest).
 
-`FaultRequest` is the REST input; `Fault` is the tracked record. How params map to
-concrete field changes and how a cleared fault restores elements is Sahil's
-(`backend/faults/`). Vikash's layer only validates the shape and routes it.
+The shape is a shared contract. FaultInjector behaviour — validating a request
+against state, mapping params to concrete field changes, restoring on clear — is
+teammate-internal (Sahil).
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from .enums import FaultType
 
 class FaultRequest(StrictModel):
     type: FaultType
-    target: str = Field(min_length=1, description="node id or edge id, per fault type")
-    params: dict[str, float] | None = Field(default=None, description="type-specific, optional")
+    target: str = Field(description="node id or edge id, per fault type")
+    params: dict[str, float] | None = None
 
 
 class Fault(StrictModel):

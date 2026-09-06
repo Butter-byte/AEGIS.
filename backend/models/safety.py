@@ -1,14 +1,12 @@
-"""Safety Gate contract — output of `backend/safety/` (Hrishi).
+"""SafetyDecision contract — output of safety/ (owned by Hrishi).
 
-Source of truth: docs/BACKEND_SCHEMA.md §8.
+Source of truth: docs/BACKEND_SCHEMA.md §6.2.
 
-The Safety Gate is deterministic: same (state, simulation, plan, policy) always
-produce the same `SafetyDecision`. It consumes only structured data — never the
-AI's text or reasoning. `approved` is True iff there are no `critical` violations.
-
-This module fixes the decision shape, the `Violation` record, and a `PolicyConfig`
-covering the rules the docs name. Rule implementations and the threshold VALUES
-(TEAM DECISION D2) are Hrishi's.
+This module fixes the shape of the decision, the Violation record, and a minimal
+PolicyConfig covering the example rules the docs already name. Hrishi owns the
+rule implementations, the evaluation, and — critically — the threshold VALUES
+(marked TEAM DECISION REQUIRED in BACKEND_SCHEMA.md §10). PolicyConfig may be
+extended by the Safety Engine; the pipeline only needs to construct and pass it.
 """
 
 from __future__ import annotations
@@ -21,24 +19,24 @@ from .enums import ViolationLevel
 
 class Violation(StrictModel):
     rule: str = Field(min_length=1, description="stable rule id, e.g. 'availability_floor'")
-    detail: str = Field(min_length=1, description="human-readable")
+    detail: str
     level: ViolationLevel
 
 
 class SafetyDecision(StrictModel):
     plan_id: str = Field(pattern=PLAN_ID)
     based_on_version: int = Field(ge=0)
-    approved: bool = Field(description="True iff no critical violations")
+    approved: bool
     violations: list[Violation] = Field(default_factory=list)
-    evaluated: dict[str, float] = Field(default_factory=dict, description="metric values the decision used")
+    evaluated: dict[str, float] = Field(default_factory=dict)
     policy_version: str = Field(min_length=1)
     decided_at: UtcDatetime
 
 
 class PolicyConfig(StrictModel):
-    """Thresholds the Safety Gate evaluates against.
+    """Thresholds the Safety Engine evaluates against.
 
-    Values here are SCAFFOLD DEFAULTS (TEAM DECISION D2 — owned by Hrishi).
+    Values below are SCAFFOLD DEFAULTS — see TEAM DECISION REQUIRED (D2).
     """
 
     policy_version: str = "p0-scaffold"

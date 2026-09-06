@@ -1,6 +1,6 @@
-"""Exception -> error envelope mapping (Vikash).
+"""Maps exceptions to the §9 error envelope.
 
-Source of truth: docs/BACKEND_SCHEMA.md §12.
+Source of truth: docs/BACKEND_SCHEMA.md §9.
 """
 
 from __future__ import annotations
@@ -27,7 +27,8 @@ def install(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content=_envelope(
-                "validation_error", "request failed schema validation",
+                "validation_error",
+                "request failed schema validation",
                 {"errors": jsonable_encoder(exc.errors())},
             ),
         )
@@ -35,5 +36,6 @@ def install(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _unexpected(_: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
-            status_code=500, content=_envelope("internal_error", f"{type(exc).__name__}: {exc}")
+            status_code=500,
+            content=_envelope("internal_error", f"{type(exc).__name__}: {exc}"),
         )

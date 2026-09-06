@@ -1,13 +1,16 @@
 # AEGIS — Backend Schema (Canonical Shared Contracts)
 
-**Owner:** Vikash. **Status:** draft for ratification, then **frozen** — additive
+**Owner:** Vikash (Canonical backend contracts)
+**Status:** Draft for team ratification. Once ratified, **frozen** — additive
 changes only, by PR with all four owners' sign-off.
 
-Every shape that crosses a module boundary is defined here. If a structure is not
-here, it is **teammate-internal** and not a shared contract. Implemented in
-`backend/models/` (a leaf package). Language of record: Python 3.11+ / Pydantic v2.
-All models set `extra = "forbid"`. Timestamps are timezone-aware UTC, serialised
-as ISO-8601 with `Z` (`2026-09-06T12:00:00Z`); field names end in `_at`.
+This document defines every shape that crosses a module boundary. If a structure
+is not defined here, it is **teammate-internal** and not a shared contract.
+
+- Language of record: Python 3.11 + Pydantic v2.
+- All models use `extra = "forbid"` unless stated otherwise.
+- All timestamps: timezone-aware UTC `datetime`, serialized as ISO 8601
+  (`2026-09-06T12:00:00Z`). Field names end in `_at`.
 
 ---
 
@@ -18,339 +21,352 @@ as ISO-8601 with `Z` (`2026-09-06T12:00:00Z`); field names end in `_at`.
 | Entity | Pattern | Example | Assigned by |
 |---|---|---|---|
 | Node | `^N\d+$` | `N1` | seed / topology (Sahil) |
-| Edge | `^N\d+-N\d+$`, endpoints ordered by **node number** | `N2-N10` | seed / topology (Sahil) |
+| Edge | `^N\d+-N\d+$`, endpoints in lexical order (`source < target`) | `N1-N2` | seed / topology (Sahil) |
 | Service | `^svc-[a-z0-9-]+$` | `svc-auth` | seed / topology (Sahil) |
-| Fault | `^flt-[0-9a-f]{8}$` | `flt-1a2b3c4d` | FaultInjector (Sahil) |
-| Diagnosis | `^dx-[0-9a-f]{8}$` | `dx-9f8e7d6c` | Diagnoser (Yyash) |
-| RecoveryPlan | `^plan-[0-9a-f]{8}$` | `plan-4b5c6d7e` | RecoveryPlanner (Yyash) |
-| SimulationResult | `^sim-[0-9a-f]{8}$` | `sim-1122aabb` | Digital Twin (Sahil) |
-| Recovery run | `^run-[0-9a-f]{8}$` | `run-0011eeff` | pipeline (Vikash) |
+| Fault | `^flt-[0-9a-f]{8}$` | `flt-1a2b3c4d` | `FaultInjector` (Sahil) |
+| Diagnosis | `^dx-[0-9a-f]{8}$` | `dx-9f8e7d6c` | `ai/` (Yyash) |
+| RecoveryPlan | `^plan-[0-9a-f]{8}$` | `plan-4b5c6d7e` | `ai/` (Yyash) |
+| Recovery run | `^run-[0-9a-f]{8}$` | `run-0011eeff` | `pipeline` (Vikash) |
 
-Random suffixes: `uuid4().hex[:8]`. **Edge ids order endpoints numerically**, so
-`edge_id_for("N2","N10") == "N2-N10"` — stable past 9 nodes.
-(`backend/models/common.edge_id_for`.)
+Random id suffixes are 8 hex chars from `uuid4().hex[:8]`.
 
-### 1.2 Enums (closed)
+### 1.2 Enums
 
 ```
-NodeStatus     = healthy | degraded | failed | quarantined
-EdgeStatus     = active  | congested | failed
-ServiceStatus  = running | degraded | down
-FaultType      = kill_node | degrade_node | overload_node
-               | cut_edge  | congest_edge | traffic_spike
-ActionType     = reroute | drain_node | restore_node
-               | migrate_service | quarantine_node | reset_link
-ViolationLevel = warning | critical
-RunOutcome     = applied | approved_pending | no_safe_plan
-               | no_plan | diagnosis_failed | error
-WSEventType    = state | fault | diagnosis | simulation | safety | recovery | error
+NodeStatus      = healthy | degraded | failed | quarantined
+EdgeStatus      = active  | congested | failed
+ServiceStatus   = running | degraded | down
+FaultType       = kill_node | degrade_node | overload_node
+                | cut_edge  | congest_edge | traffic_spike
+ActionType      = reroute | drain_node | restore_node
+                | migrate_service | quarantine_node | reset_link
+ViolationLevel  = warning | critical
+RunOutcome      = applied | approved_pending | no_safe_plan
+                | no_plan | diagnosis_failed | error
+WSEventType     = state | fault | diagnosis | simulation | safety | recovery | error
 ```
 
 ### 1.3 Versioning
 
 - `NetworkState.version: int`, starts at `0`, strictly monotonic, `+1` per
-  committed mutation, **never reset** (including `POST /network/reset`).
-- Every object derived from a snapshot carries `based_on_version: int`.
-- Every WS event carries the `version` it relates to, or `null` for progress
-  events not tied to a commit.
+  committed mutation.
+- Never reset (including on `POST /network/reset`).
+- Every WS event carries the `version` it relates to (or `null` for pipeline
+  progress events not tied to a commit).
+- Objects derived from a state snapshot carry `based_on_version: int`.
 
 ---
 
-## 2. NetworkState — the source of truth
+## 2. NetworkState — SHARED CONTRACT (source of truth)
 
-Owned by `StateManager`. Mutated only via `StateManager.apply_actions()`. Every
-consumer gets a deep copy.
+Owned/created by **StateManager**. Mutated **only** by
+`StateManager.apply_actions()`. Every consumer receives a deep copy.
 
 | Field | Type | Req | Validation |
 |---|---|---|---|
-| `version` | int | yes | `>= 0`, monotonic |
-| `updated_at` | datetime | yes | UTC, aware |
+| `version` | `int` | yes | `>= 0`, monotonic |
+| `updated_at` | `datetime` | yes | UTC |
 | `nodes` | `dict[str, NodeState]` | yes | non-empty; key `== value.id` |
-| `edges` | `list[EdgeState]` | yes | unique `id`; endpoints ∈ `nodes` |
-| `services` | `dict[str, ServiceState]` | yes | key `== value.id`; see §2.3 |
+| `edges` | `list[EdgeState]` | yes | unique `id`; `source`/`target` ∈ `nodes` |
+| `services` | `dict[str, ServiceState]` | yes | key `== value.id`; `host_node` ∈ `nodes` |
 | `active_fault_ids` | `list[str]` | yes | each matches Fault id pattern; default `[]` |
 
-Structural invariants (enforced on every mutation): every edge endpoint ∈ nodes;
-edge `id == edge_id_for(source,target)` with `source`/`target` in numeric order;
-no duplicate edge id; every `service.host_node` ∈ nodes; every `service.depends_on`
-∈ services; the `ServiceState.path` rules in §2.3.
+**Structural invariants** (enforced by `StateManager` on every mutation):
+- every `edge.source` and `edge.target` exists in `nodes`
+- every `service.host_node` exists in `nodes`
+- every id in `active_fault_ids` corresponds to a fault tracked by `FaultInjector`
+- edge `id` equals `f"{min(source,target)}-{max(source,target)}"`
 
-### 2.1 NodeState
-
-| Field | Type | Req | Validation | Meaning |
-|---|---|---|---|---|
-| `id` | str | yes | `^N\d+$` | identity |
-| `status` | NodeStatus | yes | enum | operational status |
-| `cpu_percent` | float | yes | `0–100` | CPU utilisation, percentage points |
-| `latency_ms` | float | yes | `>= 0` | processing latency contribution (ms) |
-| `packet_loss_percent` | float | yes | `0–100` | local packet loss, percentage points |
-| `capacity` | float | yes | `> 0` | max traffic units the node can route |
-| `load` | float | yes | `>= 0` | current traffic units routed through the node |
-
-### 2.2 EdgeState
+### 2.1 NodeState — SHARED CONTRACT
 
 | Field | Type | Req | Validation | Meaning |
 |---|---|---|---|---|
-| `id` | str | yes | `^N\d+-N\d+$`, numeric order | identity |
-| `source` | str | yes | node id (lower number) | endpoint A |
-| `target` | str | yes | node id (higher number) | endpoint B |
-| `bandwidth_mbps` | float | yes | `> 0` | link capacity (Mbps) |
-| `latency_ms` | float | yes | `>= 0` | propagation latency (ms) |
-| `packet_loss_percent` | float | yes | `0–100` | link packet loss, percentage points |
-| `utilization_percent` | float | yes | `0–100` | bandwidth in use, percentage points |
-| `status` | EdgeStatus | yes | enum | link status |
+| `id` | `str` | yes | `^N\d+$` | node identity |
+| `status` | `NodeStatus` | yes | enum | operational status |
+| `cpu` | `float` | yes | `0.0–100.0` | CPU utilization % |
+| `latency` | `float` | yes | `>= 0` | processing latency contribution (ms) |
+| `packet_loss` | `float` | yes | `0.0–1.0` | local packet loss ratio |
+| `capacity` | `float` | yes | `> 0` | max traffic units the node can route |
+| `load` | `float` | yes | `>= 0` | current traffic units routed through node |
 
-### 2.3 ServiceState
+### 2.2 EdgeState — SHARED CONTRACT
 
-| Field | Type | Req | Default | Validation / meaning |
+| Field | Type | Req | Validation | Meaning |
 |---|---|---|---|---|
-| `id` | str | yes | — | `^svc-[a-z0-9-]+$` |
-| `host_node` | str | yes | — | node the service runs on |
-| `required_bandwidth` | float | yes | — | `>= 0`, Mbps needed on the path |
-| `status` | ServiceStatus | yes | — | service health — **see rule below** |
-| `depends_on` | `list[str]` | no | `[]` | upstream service ids |
-| `path` | `list[str]` | no | `[]` | the **assigned** ordered node route |
+| `id` | `str` | yes | `^N\d+-N\d+$`, ordered | edge identity |
+| `source` | `str` | yes | node id | endpoint A (lexically smaller) |
+| `target` | `str` | yes | node id | endpoint B |
+| `bandwidth` | `float` | yes | `> 0` | link capacity (Mbps) |
+| `latency` | `float` | yes | `>= 0` | propagation latency (ms) |
+| `packet_loss` | `float` | yes | `0.0–1.0` | link packet loss ratio |
+| `utilization` | `float` | yes | `0.0–1.0` | fraction of bandwidth in use |
+| `status` | `EdgeStatus` | yes | enum | link status |
 
-**`path` rules (structural, enforced by `NetworkState`):** when non-empty,
-`path[0] == host_node`; every hop ∈ nodes; every consecutive pair has an edge
-(any status).
+### 2.3 ServiceState — SHARED CONTRACT
 
-**Status rule (contract — invariant 11):** `status` is evaluated **against the
-assigned `path`**, not against whether some alternate path exists.
+| Field | Type | Req | Validation | Meaning |
+|---|---|---|---|---|
+| `id` | `str` | yes | `^svc-[a-z0-9-]+$` | service identity |
+| `host_node` | `str` | yes | node id | node the service currently runs on |
+| `required_bandwidth` | `float` | yes | `>= 0` | bandwidth the service needs on its path (Mbps) |
+| `status` | `ServiceStatus` | yes | enum | service health |
+| `depends_on` | `list[str]` | no | service ids; default `[]` | upstream services required |
 
-- `path` is reassigned **only** by an executed `reroute` or `migrate_service`
-  action. Status recomputation (`NetworkModel.recompute_status`) never changes
-  `path`.
-- Therefore a fault on the assigned path degrades/downs the service and it stays
-  that way until a safety-approved recovery reroutes it — even while a physical
-  alternate exists the whole time.
-
-*Teammate-internal (Sahil):* the exact `status` derivation (thresholds, degraded
-vs down, dependency propagation, load/latency math). The contract fixes only:
-status follows the assigned path; recompute never re-routes.
+> **Teammate-internal (Sahil):** how `status`, `load`, `utilization`, and
+> reachability are *computed* from topology and faults. The contract only fixes
+> the fields above.
 
 ---
 
-## 3. Telemetry — output of `backend/telemetry/` (Sahil)
+## 3. Telemetry — SHARED CONTRACT (output of `telemetry/`, owned by Sahil)
 
-Derived, read-only projection of `NetworkState`. Never stored in it.
+Derived, read-only projection of `NetworkState`. Not stored in `NetworkState`.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `at` | datetime | when derived |
-| `based_on_version` | int | source state version |
-| `network_availability` | float `0–1` | fraction of services operational — **formula: TEAM DECISION D1** |
-| `avg_latency` | float | mean end-to-end service path latency (ms) |
-| `max_latency` | float | worst service path latency (ms) |
-| `total_packet_loss` | float `0–1` | aggregate — semantics owned by Sahil |
-| `active_nodes` | int | status ∈ {healthy, degraded} |
-| `failed_nodes` | int | status == failed |
-| `quarantined_nodes` | int | status == quarantined |
-| `congested_edges` | int | status == congested |
-| `failed_edges` | int | status == failed |
-| `per_node` | `dict[str, NodeTelemetry]` | per-node snapshot |
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `at` | `datetime` | yes | when derived |
+| `based_on_version` | `int` | yes | source state version |
+| `network_availability` | `float` | yes | `0.0–1.0`, fraction of services fully operational — **exact formula: TEAM DECISION REQUIRED** |
+| `avg_latency` | `float` | yes | mean end-to-end service path latency (ms) |
+| `max_latency` | `float` | yes | worst service path latency (ms) |
+| `total_packet_loss` | `float` | yes | `0.0–1.0`, aggregate — semantics owned by Sahil |
+| `active_nodes` | `int` | yes | nodes with status ∈ {healthy, degraded} |
+| `failed_nodes` | `int` | yes | nodes with status == failed |
+| `quarantined_nodes` | `int` | yes | nodes with status == quarantined |
+| `congested_edges` | `int` | yes | edges with status == congested |
+| `failed_edges` | `int` | yes | edges with status == failed |
+| `per_node` | `dict[str, NodeTelemetry]` | yes | per-node snapshot |
 
-`NodeTelemetry = { cpu_percent, latency_ms, packet_loss_percent, status }` — a
-1:1 projection of the `NodeState` metrics (same names, same units).
+`NodeTelemetry = { cpu: float, latency: float, packet_loss: float, status: NodeStatus }`
 
----
-
-## 4. Fault / FaultRequest — `backend/faults/` (Sahil), route by Vikash
-
-```
-FaultRequest = { type: FaultType, target: str (node id | edge id), params: dict[str,float] | null }
-Fault        = { id, type, target, params: dict[str,float], created_at }
-```
-
-`params` accepted keys (floats, all optional; names mirror the `NodeState` /
-`EdgeState` field they drive):
-
-| `type` | keys | `target` |
-|---|---|---|
-| `kill_node` | — | node id |
-| `degrade_node` | `cpu_percent`, `packet_loss_percent`, `latency_ms` | node id |
-| `overload_node` | `load` | node id |
-| `cut_edge` | — | edge id |
-| `congest_edge` | `utilization_percent`, `packet_loss_percent` | edge id |
-| `traffic_spike` | `magnitude` | node id or edge id |
-
-*Teammate-internal (Sahil):* how `params` map to field changes; how `clear`
-restores elements.
+> **Teammate-internal (Sahil):** path computation, latency aggregation method,
+> the availability formula (pending team decision), any smoothing/noise.
 
 ---
 
-## 5. Diagnosis — output of `backend/diagnosis/` (Yyash)
+## 4. Diagnosis — SHARED CONTRACT (output of `ai/`, owned by Yyash)
 
-Advisory. Consumed by the planner and shown in the UI.
+Advisory. Consumed by the Recovery Planner and shown in the UI.
 
 | Field | Type | Req | Validation |
 |---|---|---|---|
-| `id` | str | yes | `^dx-[0-9a-f]{8}$` |
-| `created_at` | datetime | yes | UTC |
-| `based_on_version` | int | yes | `>= 0` |
-| `summary` | str | yes | 1–500 chars |
-| `suspected_nodes` | `list[str]` | yes | node ids; default `[]` |
-| `suspected_edges` | `list[str]` | yes | edge ids; default `[]` |
+| `id` | `str` | yes | `^dx-[0-9a-f]{8}$` |
+| `created_at` | `datetime` | yes | UTC |
+| `based_on_version` | `int` | yes | `>= 0` |
+| `summary` | `str` | yes | 1–500 chars |
+| `suspected_nodes` | `list[str]` | yes | node ids; SHOULD exist in source state; default `[]` |
+| `suspected_edges` | `list[str]` | yes | edge ids; SHOULD exist in source state; default `[]` |
 | `suspected_services` | `list[str]` | no | service ids; default `[]` |
-| `confidence` | float | yes | `0–1` |
-| `rationale` | str | yes | 1–2000 chars |
-| `source` | str | no | `"mock" | "heuristic" | "llm"`; default `"mock"` |
+| `confidence` | `float` | yes | `0.0–1.0` |
+| `rationale` | `str` | yes | 1–2000 chars, natural-language explanation |
 
-`parse_diagnosis(raw)` (the schema gate) validates **shape only** — a diagnosis
-naming a non-existent node is accepted (low quality, not a safety risk). Only
-`parse_plan` does referenced-id existence checks, because plans drive execution.
+Malformed model output that cannot be coerced into this schema is **rejected by
+the pipeline** (never partially accepted). `parse_diagnosis(raw)` (TRD §2.1)
+validates **shape only** — it has no `NetworkState` to check suspected-id
+existence against, so a diagnosis naming a non-existent node is accepted (it is
+merely low quality, not a safety risk). Only `parse_plan` does referenced-id
+existence checks, because plans drive execution.
+
+> **Teammate-internal (Yyash):** prompt design, model choice, how suspicion is
+> derived, confidence calibration.
 
 ---
 
-## 6. RecoveryAction & RecoveryPlan — the closed vocabulary (Yyash)
+## 5. RecoveryAction & RecoveryPlan — SHARED CONTRACT (closed vocabulary)
 
-### 6.1 RecoveryAction — discriminated union on `type`, `extra = "forbid"`
+### 5.1 RecoveryAction
 
-| `type` | Fields | `parse_plan` id checks |
+Discriminated union on `type`. `extra = "forbid"`. This vocabulary is **closed** —
+the AI may emit only these. No free-form commands, code, configs, or SQL.
+
+| `type` | Fields | Field validation |
 |---|---|---|
-| `reroute` | `service_id`, `avoid_nodes: list[str]=[]`, `avoid_edges: list[str]=[]` | `service_id` ∈ services; avoided ids ∈ state |
-| `drain_node` | `node_id` | ∈ nodes |
-| `restore_node` | `node_id` | ∈ nodes |
-| `migrate_service` | `service_id`, `to_node` | both ∈ state |
-| `quarantine_node` | `node_id` | ∈ nodes |
-| `reset_link` | `edge_id` | ∈ edges |
+| `reroute` | `service_id: str`, `avoid_nodes: list[str] = []`, `avoid_edges: list[str] = []` | `service_id` ∈ services; avoided ids ∈ state |
+| `drain_node` | `node_id: str` | `node_id` ∈ nodes |
+| `restore_node` | `node_id: str` | `node_id` ∈ nodes |
+| `migrate_service` | `service_id: str`, `to_node: str` | both ∈ state; `to_node != current host` |
+| `quarantine_node` | `node_id: str` | `node_id` ∈ nodes |
+| `reset_link` | `edge_id: str` | `edge_id` ∈ edges |
 
-This vocabulary is **closed**. A planner may emit only these. Feasibility (is
-there a path? is there capacity?) is decided later by the Digital Twin.
+Schema Validation (in `models/`) checks **type membership, field presence, and
+referenced-id existence** against the plan's source `NetworkState`. *Feasibility*
+(is there capacity? is there a path?) is decided later by the Digital Twin.
 
-### 6.2 RecoveryPlan
+### 5.2 RecoveryPlan
 
 | Field | Type | Req | Validation |
 |---|---|---|---|
-| `id` | str | yes | `^plan-[0-9a-f]{8}$` |
-| `created_at` | datetime | yes | UTC |
-| `based_on_version` | int | yes | must equal the source snapshot version |
-| `targets_diagnosis` | str | yes | a `Diagnosis.id` |
-| `strategy_label` | str | yes | 1–120 chars |
-| `rationale` | str | yes | 1–2000 chars |
+| `id` | `str` | yes | `^plan-[0-9a-f]{8}$` |
+| `created_at` | `datetime` | yes | UTC |
+| `based_on_version` | `int` | yes | must equal the source snapshot version |
+| `targets_diagnosis` | `str` | yes | a `Diagnosis.id` |
+| `strategy_label` | `str` | yes | 1–120 chars |
+| `rationale` | `str` | yes | 1–2000 chars |
 | `actions` | `list[RecoveryAction]` | yes | length `1–6`, order significant |
-| `source` | str | yes | `"mock" | "heuristic" | "llm"` |
+| `source` | `"llm" \| "heuristic"` | yes | provenance |
+
+> **Teammate-internal (Yyash):** how many candidates to generate, strategy
+> selection, how actions are chosen and ordered, fallback heuristic logic.
+> **Teammate-internal (Sahil):** how each action type transforms state inside the
+> twin.
 
 ---
 
-## 7. SimulationResult — output of `backend/twin/` (Sahil)
+## 6. SimulationResult & SafetyDecision — SHARED CONTRACTS
 
-One per candidate plan.
+### 6.1 SimulationResult — output of `twin/` (owned by Sahil)
+
+One result per candidate plan.
 
 | Field | Type | Req | Meaning |
 |---|---|---|---|
-| `id` | str | yes | `^sim-[0-9a-f]{8}$` |
-| `plan_id` | str | yes | the evaluated plan |
-| `based_on_version` | int | yes | source snapshot version |
-| `feasible` | bool | yes | could every action be applied on the copy? |
-| `infeasible_reason` | str \| null | yes | set iff `feasible == false` |
-| `metrics` | `SimMetrics` \| null | yes | `null` iff `feasible == false` |
-| `delta` | `SimDelta` \| null | yes | post − pre; `null` iff infeasible |
+| `plan_id` | `str` | yes | the evaluated plan |
+| `based_on_version` | `int` | yes | source snapshot version |
+| `feasible` | `bool` | yes | could every action be applied on the copy? |
+| `infeasible_reason` | `str \| null` | yes | set iff `feasible == false` |
+| `metrics` | `SimMetrics \| null` | yes | `null` iff `feasible == false` |
+| `delta` | `SimDelta \| null` | yes | post-minus-pre; `null` iff infeasible |
 | `errors` | `list[str]` | yes | non-fatal notes; default `[]` |
-| `computed_at` | datetime | yes | UTC |
+| `computed_at` | `datetime` | yes | UTC |
 
 ```
-SimMetrics = { availability: float 0-1, avg_latency: float, max_latency: float,
-               worst_node_load: float,  # max(load/capacity)
-               unreachable_services: list[str], path_count: int }
-SimDelta   = { availability: float, avg_latency: float, max_latency: float }
+SimMetrics = {
+  availability:          float   # 0.0–1.0
+  avg_latency:           float   # ms
+  max_latency:           float   # ms
+  worst_node_load:       float   # max(load / capacity) across nodes
+  unreachable_services:  list[str]
+  path_count:            int     # distinct service paths resolved
+}
+SimDelta = { availability: float, avg_latency: float, max_latency: float }
 ```
 
----
+> **Teammate-internal (Sahil):** simulation method, how actions mutate the copy,
+> path/latency/load recomputation.
 
-## 8. SafetyDecision — output of `backend/safety/` (Hrishi)
+### 6.2 SafetyDecision — output of `safety/` (owned by Hrishi)
 
 | Field | Type | Req | Meaning |
 |---|---|---|---|
-| `plan_id` | str | yes | the evaluated plan |
-| `based_on_version` | int | yes | source snapshot version |
-| `approved` | bool | yes | `true` iff **no `critical` violations** |
+| `plan_id` | `str` | yes | the evaluated plan |
+| `based_on_version` | `int` | yes | source snapshot version |
+| `approved` | `bool` | yes | `true` iff **no `critical` violations** |
 | `violations` | `list[Violation]` | yes | default `[]` |
 | `evaluated` | `dict[str, float]` | yes | metric values the decision used |
-| `policy_version` | str | yes | identifies the policy config in effect |
-| `decided_at` | datetime | yes | UTC |
+| `policy_version` | `str` | yes | identifies the policy config in effect |
+| `decided_at` | `datetime` | yes | UTC |
 
 ```
-Violation = { rule: str, detail: str, level: "warning" | "critical" }
-PolicyConfig = { policy_version: str = "p0-scaffold",
-                 availability_floor: float = 0.99,
-                 max_latency_increase_ratio: float = 0.20,
-                 max_node_load_ratio: float = 0.90,
-                 warnings_block: bool = false }
+Violation = {
+  rule:     str            # stable id, e.g. "availability_floor"
+  detail:   str            # human-readable
+  level:    "warning" | "critical"
+}
 ```
 
-*Teammate-internal (Hrishi):* rule implementations, ordering, wording; threshold
-**values** (TEAM DECISION D2).
+> **Teammate-internal (Hrishi):** the rule implementations, ordering, message
+> wording. Threshold *values*: **TEAM DECISION REQUIRED** (see §10).
 
 ---
 
-## 9. ExecutionResult — output of `backend/execution/` (Vikash)
-
-```
-ExecutionResult = { ok: bool, resulting_version: int | null, reason: str | null }
-```
-
----
-
-## 10. REST request / response schemas
-
-| Endpoint | Request | Success response | Codes |
-|---|---|---|---|
-| `GET /network/state` | — | `NetworkState` | 200 |
-| `POST /network/reset` | — | `NetworkState` | 200 |
-| `GET /telemetry` | — | `Telemetry` | 200 / 501 |
-| `GET /faults` | — | `{ faults: [Fault] }` | 200 / 501 |
-| `POST /faults` | `FaultRequest` | `{ fault: Fault, state: NetworkState }` | 201 / 404 / 422 / 501 |
-| `DELETE /faults/{id}` | — | `{ state: NetworkState }` | 200 / 404 / 501 |
-| `POST /recovery/diagnose` | — | `Diagnosis` | 200 / 501 / 502 |
-| `POST /recovery/plan` | — | `{ diagnosis: Diagnosis, candidates: [RecoveryPlan] }` | 200 / 501 / 502 |
-| `POST /recovery/run` | `RunRequest` (optional) | `RecoveryRunResult` | 200 / 500 |
-
-```
-RunRequest        = { auto_apply: bool = true }
-PlanRequest       = { diagnosis_id: str | null }   # reserved; not yet consumed
-CandidateResult   = { plan: RecoveryPlan, simulation: SimulationResult, safety: SafetyDecision }
-RecoveryRunResult = { run_id, based_on_version: int, outcome: RunOutcome, message: str,
-                      diagnosis: Diagnosis | null, candidates: [CandidateResult],
-                      applied_plan_id: str | null, resulting_version: int | null, completed_at }
-```
-
-Expected recovery outcomes (`no_plan`, `no_safe_plan`, `diagnosis_failed`,
-`approved_pending`, **and `error`**) are **not** HTTP errors — they are
-`RecoveryRunResult.outcome` values with HTTP 200. Only an unexpected exception
-escaping the pipeline becomes `500 internal_error`.
-
----
-
-## 11. WebSocket event schemas
+## 7. WebSocket event schemas — SHARED CONTRACT
 
 Envelope (every frame):
 
 ```
-{ "type": WSEventType, "seq": int, "at": datetime, "version": int | null, "payload": { ... } }
+{
+  "type":    WSEventType,
+  "seq":     int,            # per-connection monotonic counter
+  "at":      datetime,
+  "version": int | null,     # NetworkState version this event relates to
+  "payload": { ... }         # per-type, below
+}
 ```
 
-| `type` | When | `payload` |
+| `type` | When emitted | `payload` |
 |---|---|---|
-| `state` | on connect; after every `StateManager` mutation | `{ "state": NetworkState }` |
-| `fault` | after a fault is injected / cleared | `{ "action": "injected", "fault": Fault }` or `{ "action": "cleared", "fault_id": str }` |
-| `diagnosis` | during a run, after diagnosis | `{ "run_id": str, "diagnosis": Diagnosis }` |
-| `simulation` | during a run, per candidate | `{ "run_id": str, "result": SimulationResult }` |
-| `safety` | during a run, per candidate | `{ "run_id": str, "decision": SafetyDecision }` |
-| `recovery` | run lifecycle | `{ "run_id": str, "stage": "started" | "completed", "result": RecoveryRunResult | null }` |
-| `error` | pipeline surfaced an `error` outcome | `{ "run_id": str | null, "code": str, "message": str }` |
+| `state` | on connect, and after every `StateManager` mutation | `{ "state": NetworkState }` |
+| `fault` | after a fault is injected or cleared | `{ "action": "injected" \| "cleared", "fault": Fault }` |
+| `diagnosis` | during a run, after diagnosis produced | `{ "run_id": str, "diagnosis": Diagnosis }` |
+| `simulation` | during a run, per candidate plan simulated | `{ "run_id": str, "result": SimulationResult }` |
+| `safety` | during a run, per candidate plan evaluated | `{ "run_id": str, "decision": SafetyDecision }` |
+| `recovery` | run lifecycle | `{ "run_id": str, "stage": "started" \| "completed", "result": RecoveryRunResult \| null }` |
+| `error` | pipeline/execution surfaced error | `{ "run_id": str \| null, "code": str, "message": str }` |
 
-Rules: inbound frames ignored; the WS layer never mutates state; clients drop any
-`state` frame with `version <= ` their current version.
+Rules: inbound frames are ignored; the WS layer never mutates state; clients drop
+any `state` frame whose `version <= ` their current version.
 
 ---
 
-## 12. Error schema
+## 8. REST request / response schemas — SHARED CONTRACT
+
+| Endpoint | Request body | Success response | Codes |
+|---|---|---|---|
+| `GET /network/state` | — | `NetworkState` | 200 |
+| `POST /network/reset` | — | `NetworkState` | 200 |
+| `GET /telemetry` | — | `Telemetry` | 200 |
+| `GET /faults` | — | `{ "faults": [Fault] }` | 200 |
+| `POST /faults` | `FaultRequest` | `{ "fault": Fault, "state": NetworkState }` | 201 / 404 / 422 |
+| `DELETE /faults/{id}` | — | `{ "state": NetworkState }` | 200 / 404 |
+| `POST /recovery/diagnose` | — | `Diagnosis` | 200 / 502 |
+| `POST /recovery/plan` | `PlanRequest` (optional) | `{ "diagnosis": Diagnosis, "candidates": [RecoveryPlan] }` | 200 / 502 |
+| `POST /recovery/run` | `RunRequest` (optional) | `RecoveryRunResult` | 200 / 500 |
+
+```
+FaultRequest = {
+  type:   FaultType,
+  target: str,                 # node id or edge id per type
+  params: dict[str, float] | null   # type-specific, optional
+}
+
+PlanRequest = { diagnosis_id: str | null }   # null → diagnose fresh
+RunRequest  = { auto_apply: bool }           # default true
+
+RecoveryRunResult = {
+  run_id:            str,
+  based_on_version:  int,
+  outcome:           RunOutcome,
+  message:           str,
+  diagnosis:         Diagnosis | null,
+  candidates: [ {
+      plan:       RecoveryPlan,
+      simulation: SimulationResult,
+      safety:     SafetyDecision
+  } ],
+  applied_plan_id:   str | null,
+  resulting_version: int | null,
+  completed_at:      datetime
+}
+```
+
+`FaultRequest.params` accepted keys (values are floats; all optional):
+
+| `type` | keys |
+|---|---|
+| `kill_node` | — |
+| `degrade_node` | `cpu`, `packet_loss`, `latency` |
+| `overload_node` | `load` |
+| `cut_edge` | — |
+| `congest_edge` | `utilization`, `packet_loss` |
+| `traffic_spike` | `magnitude` |
+
+> **Teammate-internal (Sahil):** how `params` map to concrete field changes and
+> how `DELETE` restores elements.
+
+---
+
+## 9. Error schema — SHARED CONTRACT
 
 All non-2xx REST responses:
 
 ```
-{ "error": { "code": str, "message": str, "details": dict | null } }
+{
+  "error": {
+    "code":    str,             # machine-readable, from the table below
+    "message": str,             # human-readable
+    "details": dict | null      # optional context (field errors, ids)
+  }
+}
 ```
 
 | `code` | HTTP | Meaning |
@@ -360,75 +376,76 @@ All non-2xx REST responses:
 | `invalid_target` | 404 | referenced node/edge/service does not exist |
 | `not_found` | 404 | referenced fault id / resource does not exist |
 | `conflict` | 409 | state changed under the operation (version mismatch) |
-| `pipeline_error` | 502 | a diagnosis/plan stage failed irrecoverably |
-| `execution_error` | 500 | an approved plan failed to apply |
+| `pipeline_error` | 502 | AI stage failed irrecoverably (even fallback) |
+| `execution_error` | 500 | approved plan failed to apply |
 | `internal_error` | 500 | unexpected bug |
-| `module_not_wired` | 501 | **TEMPORARY** — a teammate module is still a placeholder. Removed once all ports are wired. Not part of the frozen table |
+| `not_implemented` | 501 | **TEMPORARY (Phase 0/1)** — a teammate module is still stubbed. Disappears once telemetry / faults / ai / twin / safety are wired. Not a permanent part of the contract. |
+
+Expected recovery outcomes (`no_plan`, `no_safe_plan`, `diagnosis_failed`,
+`approved_pending`, **and `error`**) are **not** HTTP errors — they are
+`RecoveryRunResult.outcome` values returned with HTTP 200. Only an unexpected
+exception escaping the pipeline becomes `500 internal_error`.
 
 ---
 
-## 13. Mutation primitives (`backend/state/mutations.py`)
+## 10. TEAM DECISION REQUIRED (values, not shapes)
 
-`StateManager.apply_actions(mutations, reason)` accepts a list of these mechanical
-field-write primitives — no domain semantics.
+These fields are contractually fixed in shape here; their *values* need team
+agreement before Safety/Twin/Telemetry implementation:
 
-```
-SetNodeFields    = { op: "set_node_fields",    node_id: str,    fields: dict[str, float|int|str|bool|list] }
-SetEdgeFields    = { op: "set_edge_fields",    edge_id: str,    fields: dict[...] }
-SetServiceFields = { op: "set_service_fields", service_id: str, fields: dict[...] }
-SetActiveFaults  = { op: "set_active_faults",  fault_ids: list[str] }
-```
-
-Discriminated union on `op`. Rules: unknown target id → whole batch rejected;
-`fields` with an unknown/out-of-range key → whole batch rejected (full
-`NetworkState` re-validation); the batch is atomic — all or none; `version` bumps
-once. `backend/faults/` emits these from a `Fault`; `backend/execution/` emits
-them from an approved `RecoveryPlan`.
-
----
-
-## 14. Ports (`backend/pipeline/ports.py`) — interface contracts
-
-See `TRD.md` §5 for the full table. Signatures:
-
-```
-SeedSource.build_seed() -> NetworkState
-NetworkModel.recompute_status(state) -> list[Mutation]
-NetworkModel.resolve_path(service_id, state, *, avoid_nodes=None, avoid_edges=None, new_host=None) -> list[str] | None
-TelemetrySource.derive(state) -> Telemetry
-FaultInjector.inject(request, state) -> (Fault, list[Mutation])
-FaultInjector.clear(fault_id, state) -> list[Mutation]
-FaultInjector.active() -> list[Fault]
-Diagnoser.diagnose(state, telemetry, active_faults) -> Diagnosis
-RecoveryPlanner.plan(state, diagnosis) -> list[RecoveryPlan]
-DigitalTwin.validate(state_copy, plan) -> SimulationResult
-SafetyGate.evaluate(before, simulation, plan, policy) -> SafetyDecision
-```
+1. `Telemetry.network_availability` exact formula.
+2. Safety policy thresholds: availability floor (suggested `>= 0.99`), max
+   allowed latency degradation (suggested `+20%` vs pre-recovery), max
+   `worst_node_load` (suggested `<= 0.90`), whether `warning`-level violations
+   ever block.
+3. Seed topology final size and the identity/count of seed `ServiceState` entries.
+4. Whether `restore_node` requires the underlying fault to be cleared first
+   (affects both Safety and Twin).
+5. LLM provider + model, and whether the demo runs on the real LLM or the
+   deterministic fallback.
+6. **Edge id ordering for ≥10 nodes.** §1.1 specifies *lexical* order, so
+   `edge_id_for("N2","N10") == "N10-N2"` (lexical: `"N10" < "N2"`). If the seed
+   ever exceeds 9 nodes, either accept lexical ordering everywhere or switch to
+   numeric ordering — a one-line change in `models/common.edge_id_for` plus the
+   `EdgeState` validator, but it must be decided before Sahil builds the seed.
 
 ---
 
-## 15. TEAM DECISION REQUIRED (values, not shapes)
+## 11. SHARED CONTRACT vs TEAMMATE INTERNAL — summary
 
-| # | Decision | Needed by | Suggested default |
-|---|---|---|---|
-| D1 | `Telemetry.network_availability` formula | telemetry | fraction of services with `status == running` |
-| D2 | Safety thresholds (availability floor / max latency increase / max node load / do warnings block) | safety | `>= 0.99` / `+20%` / `<= 0.90` / no |
-| D3 | Seed topology final size + seed service set | network | 15–20 nodes, 3–4 services |
-| D4 | Does `restore_node` require the underlying fault cleared first | twin, safety | yes |
-| D5 | LLM provider + model; is the real LLM in demo scope | recovery | deterministic mock is the demo; LLM is a bonus |
-| D6 | `auto_apply` default for `POST /recovery/run` | pipeline | `true` |
-
----
-
-## 16. SHARED CONTRACT vs TEAMMATE INTERNAL
-
-| Shared (this doc, Vikash) | Teammate internal (owner decides) |
+| SHARED CONTRACT (this doc, owned by Vikash) | TEAMMATE INTERNAL (owner decides) |
 |---|---|
-| `NetworkState` / `NodeState` / `EdgeState` / `ServiceState` field sets; the `path` status rule | how topology/faults compute the field values (Sahil) |
+| `NetworkState`, `NodeState`, `EdgeState`, `ServiceState` field sets | how topology/faults compute those fields (Sahil) |
 | `Telemetry` field set | derivation math, availability formula (Sahil) |
-| `Fault` / `FaultRequest` shape | param → field mapping, restore logic (Sahil) |
+| `Fault` / `FaultRequest` shape | param → field-change mapping, restore logic (Sahil) |
 | `Diagnosis` shape | prompts, model, suspicion logic (Yyash) |
-| closed `RecoveryAction` vocabulary, `RecoveryPlan` shape | candidate generation, selection, fallback (Yyash) |
+| `RecoveryAction` closed vocabulary, `RecoveryPlan` shape | candidate generation, action selection, fallback (Yyash) |
 | `SimulationResult` / `SimMetrics` shape | simulation method, action semantics in the twin (Sahil) |
-| `SafetyDecision` / `Violation` shape, "approved iff no critical" | rule implementations, threshold values (Hrishi) |
-| REST + WS envelopes, error schema, id patterns, versioning, mutation primitives, ports | — |
+| `SafetyDecision` / `Violation` shape, approval rule (no critical) | rule implementations, threshold values (Hrishi) |
+| REST + WS envelopes, error schema | — |
+| id patterns, versioning, timestamp format | — |
+| mutation primitives (§12) | which primitives a fault / action produces |
+
+---
+
+## 12. Mutation primitives — SHARED CONTRACT (`state/mutations.py`)
+
+`StateManager.apply_actions(mutations, reason)` accepts a list of these
+mechanical field-write primitives. They carry no domain semantics.
+
+```
+SetNodeFields     = { op: "set_node_fields",    node_id: str,    fields: dict[str, float|int|str|bool|list] }
+SetEdgeFields     = { op: "set_edge_fields",    edge_id: str,    fields: dict[...] }
+SetServiceFields  = { op: "set_service_fields", service_id: str, fields: dict[...] }
+SetActiveFaults   = { op: "set_active_faults",  fault_ids: list[str] }
+```
+
+Discriminated union on `op`. Rules enforced by `StateManager`:
+- unknown `node_id` / `edge_id` / `service_id` → whole batch rejected
+- `fields` containing an unknown or out-of-range key → whole batch rejected
+  (full `NetworkState` re-validation)
+- the batch is atomic: all primitives apply or none do; `version` bumps once
+
+**`faults/` (Sahil)** emits these from a `Fault` + params. **`execution/`
+(Vikash)** emits these from an approved `RecoveryPlan`. See `ARCHITECTURE.md`
+§4.3.

@@ -1,193 +1,261 @@
 # AEGIS — Implementation Plan
 
-**Owner:** Vikash (Integration Lead) · **Companions:** `TRD.md`, `BACKEND_SCHEMA.md`.
+**Owner:** Vikash (Integration Lead)
+**Companion:** `ARCHITECTURE.md`, `BACKEND_SCHEMA.md`, `TRD.md`.
 
-Phased plan. **Vikash's phases are detailed** (his responsibility). **Teammate
-phases specify only what must be delivered, which contract it satisfies, and when
-it integrates** — not how to build it. `tests/fakes.py` + `tests/fixtures.py` are
-the integration currency: a module "integrates" when its I/O matches the fakes it
-replaces and the fixtures.
+Phased plan for the 3-day MVP. **Vikash's phases are detailed** (his
+responsibility). **Teammate phases specify only what must be delivered, which
+contract it must satisfy, and when it integrates** — not how to build it.
 
----
-
-## Status
-
-| Phase | Owner | State |
-|---|---|---|
-| **P0 — structure + docs + contracts plan** | Vikash | ✅ done |
-| **P1 — Vikash integration backbone** | Vikash | ✅ done (this pass) |
-| P2 — network sim + telemetry | Sahil | not started |
-| P3 — fault injection | Sahil | not started |
-| P4 — frontend | Hrishi | not started |
-| P5 — mock diagnosis + planner | Yyash | not started |
-| P6 — Digital Twin | Sahil | not started |
-| P7 — Safety Gate | Hrishi | not started |
-| P8 — wire real modules + hardening | Vikash | not started |
-| P9 — E2E + demo scenarios | all | not started |
-| P10 — LLM behind the planner port | Yyash | not started |
+Contract fixtures in `tests/contracts/` are the integration currency: a module
+"integrates" when its I/O matches the fixtures.
 
 ---
 
-## Phase 0 — Structure, docs, contracts (Vikash) ✅
+## Phase 0 — Foundation & contract freeze  ·  Owner: Vikash  ·  ~half day
 
-- Clean local project structure; teammate placeholder packages with owner READMEs.
-- Six planning documents, internally consistent (`PRD`, `TRD`, `APP_FLOW`,
-  `UI_UX_BRIEF`, `BACKEND_SCHEMA`, this file). No `ARCHITECTURE.md` — folded into `TRD`.
-- `BACKEND_SCHEMA.md` is the frozen source of truth for every cross-module shape.
-- Project config: `pyproject.toml`, `backend/requirements.txt`, `.gitignore`.
+**Goal:** every teammate can start in parallel against a stable contract.
 
-## Phase 1 — Vikash integration backbone ✅
-
-**Goal:** a running server + a pipeline skeleton that all three teammates can plug
-real modules into without touching integration code.
-
-| Delivered | File(s) |
+| Task | Detail |
 |---|---|
-| All canonical models + the AI-output schema gate | `backend/models/` |
-| `StateManager` — single authoritative writer, versioning, subscribers, atomic reject | `backend/state/manager.py`, `mutations.py`, `preview.py` |
-| Module ports (Protocols) for every teammate module | `backend/pipeline/ports.py` |
-| Pipeline orchestrator — observe→diagnose→plan→schema-gate→twin→safety→execute, honest `RunOutcome`, stage isolation, WS events | `backend/pipeline/orchestrator.py` |
-| Executor — refuses unapproved/mismatched/stale plans; one atomic batch; no partial apply | `backend/execution/` |
-| WebSocket broadcaster (transport-agnostic) + `/ws` endpoint | `backend/events/`, `backend/api/ws.py` |
-| REST routes + error envelope + composition root | `backend/api/` |
-| App assembly | `backend/main.py` |
-| Temporary scaffold seed (deleted once `backend/network/` lands) | `backend/state/seed.py` |
-| Deterministic fakes for every port + canonical fixtures | `tests/fakes.py`, `tests/fixtures.py` |
-| Integration + E2E + boundary tests | `tests/` (see `TRD.md` §11) |
+| Ratify `BACKEND_SCHEMA.md` | team read-through; resolve or park the §10 TEAM DECISION items |
+| `backend/models/` | implement all 11 canonical models + `RecoveryAction` union + request/response + WS envelope + error model + enums + `SchemaValidation` helpers |
+| `backend/state/StateManager` | `snapshot()`, `apply_actions()`, `reset()`, `subscribe()`, `current_version()`; structural-invariant checks; version monotonicity |
+| `backend/config.py` | seed params, safety thresholds (placeholder), LLM settings |
+| `tests/contracts/` | one valid + several invalid instances of every model |
+| Repo hygiene | `.gitignore`; `backend/requirements.txt` (pinned); remove committed `__pycache__`; pin Python 3.11 (**INFORM Sahil** — his commits added the bytecode) |
+| Fake modules | `fakes/` providing stub `ai`, `twin`, `safety`, `telemetry`, `build_seed` matching the fixtures, so the pipeline and API can be built before real modules land |
 
-**Acceptance:** `GET /network/state`, `POST /network/reset`, `/ws` work now
-against the scaffold seed; the full pipeline runs end to end with fakes and
-returns every `RunOutcome`; unwired modules return `module_not_wired` / `error`;
-import boundaries green.
-
-**Not in Phase 1:** any simulator, twin, diagnosis, planner, safety, or frontend
-implementation. Those are other owners' phases.
+**Dependency:** none.
+**Integration point:** publishes `models/` + fixtures + `StateManager`.
+**Acceptance:**
+- every model round-trips through its fixture; invalid variants raise
+- `StateManager` unit tests pass (S1–S9 in `TRD.md §2.2`)
+- import-lint test in place and green
 
 ---
 
-## Phase 2 — Network simulation + telemetry (Sahil)
+## Phase 1 — StateManager + API skeleton + WebSocket  ·  Owner: Vikash  ·  ~half day
 
-**Deliver:**
-- `SeedSource.build_seed() -> NetworkState` — deterministic (same build ⇒ identical
-  topology), connected, 15–20 nodes, all healthy, all edges active, 3–4 services **with
-  assigned `path`s**, `version 0`. Passes `NetworkState` structural invariants.
-- `NetworkModel.recompute_status(state) -> list[Mutation]` — status-only mutations
-  that make node/edge/service `status` consistent with topology + metrics. **Must
-  never re-route** a service (invariant 11).
-- `NetworkModel.resolve_path(...)` — viable ordered node path or `None`, honouring
-  `avoid_nodes` / `avoid_edges` / `new_host` and skipping dead nodes/edges.
-- `TelemetrySource.derive(state) -> Telemetry` — pure, conforms to §3.
+**Goal:** a running server that serves state and broadcasts changes, using fakes.
 
-**Contract:** `BACKEND_SCHEMA.md` §2, §3, §14. `backend/network/` +
-`backend/telemetry/` import `backend/models/` (+ `networkx`) only.
+| Task | Detail |
+|---|---|
+| `backend/api/` routes | all endpoints from `TRD.md §5`, delegating to fakes where real modules are absent |
+| Error mapping | exceptions → error schema (`BACKEND_SCHEMA.md §9`) |
+| `backend/api/ws.py` | `/ws` broadcast; initial `state` frame; `StateManager` subscription; `publish(event)` sink; inbound ignored |
+| `backend/main.py` | app assembly; seed load at startup |
+| Tests | API contract tests; WS connect/broadcast/inbound-ignored test |
 
-**Integrates when:** `main.py` wires `Ports(seed_source=…, network_model=…,
-telemetry=…)` and the E2E tests pass against the real topology instead of the
-scaffold seed. Delete `backend/state/seed.py`.
+**Dependency:** Phase 0.
+**Integration point:** live REST + WS surface for the frontend and for e2e tests.
+**Acceptance:**
+- `GET /network/state`, `GET /telemetry`, `GET /faults` return valid shapes
+- `POST /faults` (via fake injector) bumps `version` and broadcasts `state`+`fault`
+- `/ws` sends initial state and rebroadcasts on mutation; inbound frames ignored
 
-**Acceptance:** seed passes structural invariants; `network_availability` formula
-agreed (D1) and documented; `recompute_status` + `resolve_path` behave for
-healthy, faulted, and post-recovery states.
+---
 
-## Phase 3 — Fault injection (Sahil)
+## Phase 2 — Network simulation, topology, telemetry  ·  Owner: Sahil
 
-**Deliver:** `FaultInjector` — `inject(FaultRequest, state) -> (Fault,
-list[Mutation])`, `clear(id, state) -> list[Mutation]`, `active() -> list[Fault]`.
-Returns mutations; does **not** touch state. Invalid target/type/params → raise
-(the route maps to `422`/`404`, no mutation).
+**Must deliver:**
+- `network.build_seed() -> NetworkState` — valid per `BACKEND_SCHEMA.md §2`
+  (connected, ≥5 nodes healthy, all edges active, ≥3 services, `version 0`).
+- `telemetry.derive(state) -> Telemetry` — pure, conforms to §3.
+- `NetworkState ↔ graph` helpers for downstream algorithm use.
 
-**Contract:** `BACKEND_SCHEMA.md` §4, §13. `FaultType` is closed.
+**Contract to satisfy:** `BACKEND_SCHEMA.md §2, §3`; telemetry is a pure function
+with no side effects; nothing writes `NetworkState` directly.
+
+**Integrates when:** `build_seed()` output parses against the fixtures and
+`StateManager` accepts it; `GET /telemetry` returns real data.
+
+**Acceptance (contract-level):**
+- seed passes `StateManager` structural invariants
+- telemetry fields all present and in range for the seed and for a faulted state
+- `network_availability` formula agreed (TEAM DECISION) and documented by Sahil
+
+**Not specified here:** topology shape, path/latency/load model, availability math.
+
+---
+
+## Phase 3 — Fault injection  ·  Owner: Sahil
+
+**Must deliver:** `FaultInjector` with
+`inject(FaultRequest) -> (Fault, mutations)`, `clear(id) -> mutations`,
+`active() -> list[Fault]`; applied **only** via `StateManager.apply_actions()`.
+
+**Contract to satisfy:** `Fault` / `FaultRequest` shapes (`§8`); invalid
+target/type/params rejected with no mutation; `FaultType` vocabulary is closed.
 
 **Integrates when:** `POST /faults`, `DELETE /faults/{id}`, `GET /faults` work
 against the real injector and drive visible telemetry change.
 
-## Phase 4 — Frontend (Hrishi) — parallel from now
+**Acceptance (contract-level):**
+- each `FaultType` produces a visible, consistent state change
+- invalid requests → `422`/`404`, `version` unchanged
+- `clear` moves affected elements toward nominal
 
-**Deliver:** the dark network-operations dashboard per `UI_UX_BRIEF.md`,
-consuming the REST + `/ws` contracts. One REST client module, one socket module,
-one server-sourced view model, no hardcoded topology, stale-frame rule.
+**Not specified here:** how each fault maps to concrete field changes.
 
-**Contract:** `UI_UX_BRIEF.md` §3–§5. `frontend/` is created by Hrishi (Vite +
-React + TS + `@xyflow/react`).
+---
 
-**Integrates when:** the dashboard renders the seed topology from
-`GET /network/state`, updates on `/ws`, can inject a fault, and can run recovery
-showing diagnosis/simulation/safety/recovery and all six `RunOutcome`s.
+## Phase 4 — Frontend observability  ·  Owner: Hrishi  ·  starts in parallel from Phase 1
 
-## Phase 5 — Mock diagnosis + planner (Yyash)
+**Must deliver:** dashboard rendering **live** `NetworkState` + `Telemetry` +
+fault list; fault controls; a recovery panel; consumption of `/ws` events;
+`services/api.ts` + `services/socket.ts`.
 
-**Deliver:** deterministic `Diagnoser.diagnose(...)` and
-`RecoveryPlanner.plan(...)` (`source="mock"`) producing schema-valid `Diagnosis`
-and `RecoveryPlan`s (closed vocabulary, ≤ 6 actions, `based_on_version` set),
-**no LLM**.
+**Contract to satisfy:** `UI_UX_BRIEF.md §3–§5`; single server-sourced view
+model; no hardcoded topology; stale-frame rule.
 
-**Contract:** `BACKEND_SCHEMA.md` §5, §6. `backend/diagnosis/` +
-`backend/recovery/` import `backend/models/` only — no state/execution/twin/safety.
+**Integrates when:** the dashboard shows the seed topology from `GET
+/network/state`, updates on `/ws` `state` events, and can inject a fault.
 
-**Acceptance:** output always passes `parse_plan`; for a killed-node fault at
-least one sensible candidate; deterministic (same state → same candidates).
+**Acceptance (contract-level):**
+- topology and telemetry reflect server state, update in real time
+- fault inject/clear works end to end
+- recovery panel renders `diagnosis` / `simulation` / `safety` / `recovery`
+  events and all six `RunOutcome` values
+- reconnect falls back to `GET /network/state`
 
-## Phase 6 — Digital Twin (Sahil)
+**Not specified here:** visual design, components, layout, styling, motion.
 
-**Deliver:** `DigitalTwin.validate(state_copy, plan) -> SimulationResult`.
+---
 
-**Contract:** `BACKEND_SCHEMA.md` §7. Operates on the passed copy; `backend/twin/`
-never imports `backend/state/` or `backend/execution/`; deterministic.
+## Phase 5 — Mock diagnosis + mock recovery planner  ·  Owner: Yyash
 
-**Acceptance:** `StateManager.version` unchanged after `validate()` (isolation
-harness — Vikash provides); identical `(state, plan)` → identical result;
-infeasible plan → `feasible=false` + reason, `metrics=null`.
+**Must deliver:** deterministic `ai.diagnose(...)` and `ai.plan(...)` with
+`source="heuristic"`, producing schema-valid `Diagnosis` and `RecoveryPlan`s
+(closed vocabulary, ≤6 actions, `based_on_version` set) with **no LLM**.
 
-## Phase 7 — Safety Gate (Hrishi)
+**Contract to satisfy:** `BACKEND_SCHEMA.md §4, §5`; `ai/` imports `models/`
+only; returns data; never touches state/execution/twin/safety.
 
-**Deliver:** `SafetyGate.evaluate(before, simulation, plan, policy) ->
-SafetyDecision`; the rule-id set it emits; `PolicyConfig` defaults.
+**Integrates when:** `POST /recovery/diagnose` and `POST /recovery/plan` return
+real (heuristic) data and the pipeline can consume it.
 
-**Contract:** `BACKEND_SCHEMA.md` §8. Deterministic; `backend/safety/` imports
-`backend/models/` only; `approved` iff no `critical` violation.
+**Acceptance (contract-level):**
+- output always parses via `models.SchemaValidation`
+- for a killed-node fault, at least one sensible candidate is produced
+- deterministic: same state → same candidates
 
-**Acceptance:** per-rule golden tests; determinism (same inputs ×100 → identical);
-rejects at least — availability below floor, latency degradation over limit, a
-plan using a quarantined/protected node, a plan leaving a service unreachable, a
-twin-infeasible plan. Thresholds resolved (D2), recorded as `policy_version`.
+**Not specified here:** heuristic logic, strategy selection.
 
-## Phase 8 — Wire real modules + hardening (Vikash)
+---
 
-- `main.py` builds `Ports` from the real modules; delete `backend/state/seed.py`.
-- Twin isolation harness wired against the real twin.
-- Perf check: recovery run < 5 s; reads < 100 ms.
-- Fill test gaps: full pipeline outcome coverage against real modules, conflict
-  handling, reconnect.
+## Phase 6 — Digital Twin  ·  Owner: Sahil
 
-**Acceptance:** the PRD demo narrative (§8) runs without a live LLM and without
-manual intervention.
+**Must deliver:** `twin.simulate(state_copy, plan) -> SimulationResult`.
 
-## Phase 9 — E2E + three scripted demo scenarios (Sahil + all)
+**Contract to satisfy:** `BACKEND_SCHEMA.md §6.1`; operates on the passed copy;
+`twin/` never imports `state/` or `execution/`; deterministic.
 
-`backend/scenarios/` — three scenarios, each running to a known outcome:
+**Integrates when:** the pipeline can simulate each candidate and get comparable
+metrics.
 
-1. **Safe reroute** — a link on a service's assigned path fails; the planner
-   reroutes to an alternate; safety approves; recovered.
-2. **Multi-action recovery** — a degraded node + a congested link; recovery needs
-   `drain_node` + `reroute` (+ maybe `migrate_service`); twin shows staged
-   improvement; safety approves.
-3. **Unsafe plan rejected** — the only proposed fix targets protected
-   infrastructure / partitions a service / exceeds capacity; Safety Gate returns
-   `approved=false` with the failing rule named; network stays safely degraded,
-   no mutation.
+**Acceptance (contract-level):**
+- `StateManager.version` unchanged after `simulate()` (Vikash's isolation harness)
+- identical `(state, plan)` → identical `SimulationResult`
+- infeasible plan → `feasible=False` + `infeasible_reason`, `metrics=null`
+- feasible plan → all `SimMetrics` present; `delta` computed
 
-Exposed as `POST /scenarios/{id}/run` (contract to be added to `BACKEND_SCHEMA.md`
-before implementation) and as dashboard buttons.
+**Not specified here:** simulation method, per-action state transforms, metric math.
 
-## Phase 10 — LLM behind the planner port (Yyash)
+---
 
-**Deliver:** LLM-backed `Diagnoser` / `RecoveryPlanner` behind the **same**
-Protocols, structured output validated by the schema gate, one retry on malformed
-output, then automatic fallback to the Phase 5 mock. `RecoveryPlan.source` reports
-`"llm"` vs `"mock"`.
+## Phase 7 — Safety Engine  ·  Owner: Hrishi
 
-**Acceptance:** malformed model output → retry → fallback, never a 500, never an
-invalid plan; with the LLM disabled behaviour is exactly Phase 5.
+**Must deliver:** `safety.evaluate(before, sim, plan, policy) -> SafetyDecision`;
+a `PolicyConfig` with default thresholds; the set of rule ids it emits.
+
+**Contract to satisfy:** `BACKEND_SCHEMA.md §6.2`; deterministic; `safety/`
+imports `models/` only; `approved` iff no `critical` violation.
+
+**Integrates when:** the pipeline gets a real decision per candidate.
+
+**Acceptance (contract-level):**
+- per-rule golden tests (crafted metrics → expected violation)
+- determinism: same inputs ×100 → identical `SafetyDecision`
+- rejects: availability below floor; latency degradation over limit; plan uses a
+  quarantined node; plan leaves a service unreachable; twin-infeasible plan
+- thresholds resolved (TEAM DECISION) and recorded as `policy_version`
+
+**Not specified here:** rule implementations, evaluation order, messages.
+
+---
+
+## Phase 8 — Execution + full pipeline wiring  ·  Owner: Vikash  ·  ~half day
+
+**Goal:** the real end-to-end cycle with all real modules.
+
+| Task | Detail |
+|---|---|
+| `backend/execution/` | `apply(plan) -> ExecutionResult` per `TRD.md §2.4` (E1–E6); version re-check; single atomic mutation batch; no partial apply |
+| `pipeline.run()` | replace fakes with real `ai` / `twin` / `safety` / `telemetry`; implement stage isolation, fallback rules, outcome mapping (`ARCHITECTURE.md §5`) |
+| WS progress events | emit `diagnosis` / `simulation` / `safety` / `recovery` at stage boundaries |
+| Tests | pipeline integration across every `RunOutcome`; execution unit tests; conflict handling |
+
+**Dependency:** Phases 2, 3, 5, 6, 7 at contract level (fakes stand in for any
+that slip).
+**Integration point:** `POST /recovery/run` performs the real cycle.
+**Acceptance:**
+- happy path: fault → run → `outcome=applied`, `version` bumped once, WS events
+  in order
+- `no_safe_plan`: crafted unrecoverable fault → no mutation, reasons present
+- execution never runs without `approved && feasible` for the current `version`
+- version conflict → `outcome=error`, no mutation
+
+---
+
+## Phase 9 — End-to-end integration & hardening  ·  Owner: Vikash  ·  ~half day
+
+| Task | Detail |
+|---|---|
+| `tests/e2e/` | happy path, no-safe-plan, malformed-AI, reset, reconnect |
+| Import-lint | full forbidden-dependency table green (`ARCHITECTURE.md §8.1`) |
+| Twin isolation test | wired against the real twin |
+| Frontend ↔ backend | full manual pass of `UI_UX_BRIEF.md §4` states |
+| Perf check | recovery run < 5 s (fallback); reads < 100 ms |
+
+**Acceptance:** the PRD demo narrative (`PRD.md §8`) runs without a live LLM and
+without manual intervention.
+
+---
+
+## Phase 10 — Structured LLM integration  ·  Owner: Yyash
+
+**Must deliver:** real LLM-backed `ai.diagnose` / `ai.plan` behind the **same**
+function signatures, with structured output validated by `models.SchemaValidation`,
+one retry on malformed output, then automatic fallback to the Phase 5 heuristic.
+
+**Contract to satisfy:** identical to Phase 5 — output types unchanged; `ai/`
+still imports `models/` only; malformed output never propagates.
+
+**Integrates when:** setting the LLM key switches diagnosis/planning to the model
+with no change to the pipeline or API.
+
+**Acceptance (contract-level):**
+- malformed model output → retry → fallback, never a 500, never an invalid plan
+- with the LLM disabled, behaviour is exactly Phase 5
+- `RecoveryPlan.source` correctly reports `llm` vs `heuristic`
+
+**Not specified here:** prompts, model, provider, structured-output mechanism.
+
+---
+
+## Phase 11 — Testing pass  ·  Owner: all, coordinated by Vikash
+
+Fill gaps against `ARCHITECTURE.md §9`. Priorities: safety golden tests,
+malformed-AI tests, twin isolation/determinism, pipeline outcome coverage,
+import-lint.
+
+---
+
+## Phase 12 — Demo polish  ·  Owner: all
+
+Scripted fault→recovery scenario; ensure `no_safe_plan` path is demoable;
+event-log readability; a second unrecoverable fault for the contrast moment.
 
 ---
 
@@ -195,31 +263,122 @@ invalid plan; with the LLM disabled behaviour is exactly Phase 5.
 
 | Day | Vikash | Sahil | Yyash | Hrishi |
 |---|---|---|---|---|
-| 1 AM | P0 + P1 | read contracts | read contracts | read contracts |
-| 1 PM | support integration | P2 | P5 (start) | P4 (start, mock data) |
-| 2 AM | isolation harness, test gaps | P3 | P5 | P4 |
-| 2 PM | P8 (start) | P6 | P10 (start) | P7 |
-| 3 AM | P8 → P9 | P6 finish + P9 | P10 | P7 finish + P4 wire live |
-| 3 PM | P9 → demo polish | P9 | P9/polish | P9/polish |
+| 1 AM | Phase 0 | (read contract) | (read contract) | (read contract) |
+| 1 PM | Phase 1 | Phase 2 | Phase 5 (start) | Phase 4 (start, mock mode) |
+| 2 AM | (support) | Phase 3 | Phase 5 | Phase 4 |
+| 2 PM | Phase 8 (start) | Phase 6 | Phase 10 (start) | Phase 7 |
+| 3 AM | Phase 8 → 9 | Phase 6 finish | Phase 10 | Phase 7 finish + Phase 4 wire live |
+| 3 PM | Phase 9 → 12 | Phase 11/12 | Phase 11/12 | Phase 11/12 |
 
-**Critical path:** P1 → (P2 + P5) → P8 → P9. Frontend (P4) and Safety (P7) run
-against the fakes/fixtures and are not on the critical path until P8.
-
----
-
-## TEAM DECISIONS REQUIRED
-
-See `BACKEND_SCHEMA.md` §15 (D1–D6). Blockers: D1 (P2), D2 (P7), D3 (P2),
-D4 (P6/P7), D5 (P10), D6 (already defaulted `true`).
+**Critical path:** Phase 0 → (Phase 2 + Phase 5) → Phase 8 → Phase 9.
+Phase 4 (frontend) and Phase 7 (safety) run against fixtures/fakes and are not on
+the critical path until Phase 9.
 
 ---
 
-## Rules for future Claude sessions
+## Why this order (deviations from the suggested sequence)
 
-1. **One owner per session.** If a task belongs to Sahil / Yyash / Hrishi:
-   define/confirm the port, add or adjust a fake, document the requirement, stop.
-2. **`BACKEND_SCHEMA.md` is authoritative.** A genuine contract change =
-   PR that edits §-of-`BACKEND_SCHEMA.md` first, then the model, then dependent
-   docs/tests, communicated before implementation spreads.
-3. **Never weaken the invariants in `TRD.md` §3.**
-4. **Git/GitHub is manual** — the team commits and pushes; Claude does not.
+- **Contract freeze is an explicit gate (Phase 0), not folded into "foundation."**
+  Parallel work is impossible until the schemas exist. Highest-leverage step.
+- **Twin (6) and Safety (7) proceed in parallel.** Safety only needs the
+  `SimulationResult` *shape* — Hrishi builds against hand-written fixtures, so
+  he is not blocked on Sahil.
+- **Mock diagnosis/planner (5) before real LLM (10).** The whole safety-gated
+  pipeline must be demoable with zero LLM dependency. The LLM is a drop-in at
+  Phase 10; if it slips, the demo still works.
+- **Frontend (4) is continuous from Phase 1, not a discrete later phase.** Hrishi
+  needs the full three days; he is gated only on the frozen API/WS shapes plus a
+  mock mode in `services/`.
+- **Telemetry is part of Phase 2, not its own subsystem.** It is a pure
+  projection of `NetworkState`; treating it as an "engine" is over-scoped.
+
+---
+
+## TEAM DECISION REQUIRED (blockers for the phases that need them)
+
+| # | Decision | Needed by | Suggested default |
+|---|---|---|---|
+| D1 | `Telemetry.network_availability` formula | Phase 2 | fraction of services with `status == running` |
+| D2 | Safety thresholds: availability floor / max latency degradation / max node load / do warnings block | Phase 7 | `>= 0.99` / `+20%` / `<= 0.90` / warnings do not block |
+| D3 | Seed topology final size + seed service count/identity | Phase 2 | ~7–12 nodes, 3–4 services |
+| D4 | Does `restore_node` require the underlying fault cleared first | Phases 6, 7 | yes |
+| D5 | LLM provider + model; is the real LLM in demo scope | Phase 10 | fallback is the demo; LLM is a bonus |
+| D6 | `auto_apply` default for `POST /recovery/run` | Phase 8 | `true` |
+
+---
+
+## INFORM [TEAMMATE] — issues found in teammate-owned areas (not fixed here)
+
+### INFORM Sahil
+
+**Issue:** `backend/network/simulator.py` makes its `networkx.Graph` the de facto
+source of truth, and `backend/api/routes.py` holds a module-level
+`sim = NetworkSimulator()` singleton. Faults mutate the graph directly.
+**Why it matters:** violates architectural invariants 1 and 2 —
+`NetworkState` must be the single source of truth and `StateManager` its only
+writer. The current design has no `StateManager`, no `version`, and no path for
+execution/telemetry to share one state.
+**What needs to be discussed:** reframing the simulator as (a) a `build_seed() ->
+NetworkState` producer and (b) stateless graph/algorithm helpers that operate on
+a `NetworkState` passed in; all mutations routed through
+`StateManager.apply_actions()`. The `nx.Graph` can remain an internal
+computation detail, rebuilt from `NetworkState` as needed.
+
+**Issue:** the seed topology is hardcoded to 7 nodes (`N1`–`N7`) in
+`_build_initial_topology`, with no services, no `capacity`/`load`, and edges
+without `id`/`utilization`.
+**Why it matters:** the canonical `NetworkState` (`BACKEND_SCHEMA.md §2`)
+requires those fields and a `services` map; `migrate_service` and the
+availability metric depend on services existing.
+**What needs to be discussed:** the seed's final node count, the service set (D3),
+and populating the additional fields.
+
+**Issue:** `origin/frontend` renders its own hardcoded 5-node topology (`N1`–`N5`)
+that does not match the backend's 7 nodes.
+**Why it matters:** two diverging topologies = two sources of truth (invariant
+11).
+**What needs to be discussed:** frontend must render `NetworkState` from the API;
+the seed (yours) is the only topology. (Also raised with Hrishi.)
+
+**Issue:** committed bytecode — `backend/**/__pycache__/*.cpython-311.pyc` — is
+in the repo, and there is no `.gitignore` or `requirements.txt`. Bytecode is
+CPython 3.11 while the local interpreter is 3.14.
+**Why it matters:** dirty diffs, wrong-interpreter confusion, no reproducible
+env.
+**What needs to be discussed:** Vikash will add `.gitignore` + pinned
+`requirements.txt` + pin Python 3.11 in Phase 0 and remove the tracked `.pyc`
+files; flagging so the removal in your working tree is expected.
+
+### INFORM Yyash
+
+**Issue:** no `ai/` module exists yet; there is no structured-output or fallback
+mechanism.
+**Why it matters:** the pipeline requires `ai.diagnose` / `ai.plan` to return
+schema-valid `Diagnosis` / `RecoveryPlan` data and to never propagate malformed
+output. Without a deterministic fallback, the entire demo depends on a live LLM
+(NFR2 forbids that).
+**What needs to be discussed:** committing to the closed `RecoveryAction`
+vocabulary (`BACKEND_SCHEMA.md §5`), and delivering the Phase 5 heuristic
+diagnosis/planner before the Phase 10 LLM integration.
+
+### INFORM Hrishi
+
+**Issue:** no `safety/` module exists yet.
+**Why it matters:** it is the authority in the pipeline; it must be deterministic
+and independent of the AI (invariants 8, 9).
+**What needs to be discussed:** the `evaluate()` signature (`TRD.md §3.4`), the
+`PolicyConfig` thresholds (D2), and the rule id set it will emit.
+
+**Issue:** the `origin/frontend` dashboard is fully hardcoded — mocked telemetry
+("CPU 42%", "12 active nodes"), a hardcoded 5-node graph, non-functional fault
+buttons — and has no `services/` API or socket layer.
+**Why it matters:** invariant 11 (no second state store); the frontend must
+render live `NetworkState`.
+**What needs to be discussed:** replacing hardcoded data with `services/api.ts` +
+`services/socket.ts` consuming the real endpoints; the graph deriving nodes/edges
+from `NetworkState`.
+
+**Issue:** `frontend/package.json` on `origin/frontend` pins versions that do not
+resolve (`react ^19.2.8`, `vite ^8.2.2`, `typescript ~6.0.2`, `eslint ^10`, etc.).
+**Why it matters:** `npm install` will fail; the frontend can't be built or run.
+**What needs to be discussed:** a real install/pin pass early in Phase 4.

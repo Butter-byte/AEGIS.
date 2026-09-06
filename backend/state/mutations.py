@@ -1,17 +1,14 @@
-"""Mechanical state-write primitives — the write contract into StateManager.
+"""Low-level mutation primitives — the contract between state writers and state/.
 
-Source of truth: docs/BACKEND_SCHEMA.md §13.
+`faults/` (Sahil) and `execution/` (Vikash) translate their domain operations
+(fault effects, recovery-action effects) into a list of these primitives and
+hand them to `StateManager.apply_actions()`. The primitives carry NO domain
+semantics — they are mechanical field writes. "which fields, what values" is the
+caller's job; "apply atomically and re-validate" is StateManager's.
 
-`StateManager.apply_actions()` does NOT accept `RecoveryAction`s or `Fault`s. It
-accepts a list of these primitives, which carry NO domain semantics — just
-"merge these fields into that node/edge/service". Translating a domain operation
-into primitives is the caller's job:
-
-  * `backend/faults/` (Sahil)     — Fault + params    -> primitives
-  * `backend/execution/` (Vikash) — approved plan     -> primitives
-
-"which fields, what values" is the caller's; "apply atomically and re-validate"
-is StateManager's.
+This shape is an integration contract introduced here (BACKEND_SCHEMA.md leaves
+the mutation-primitive shape to state/). Flagged in the Phase 0/1 report so
+FaultInjector emits these.
 """
 
 from __future__ import annotations
@@ -53,6 +50,8 @@ Mutation = Annotated[
     Field(discriminator="op"),
 ]
 
+
+# --- ergonomic constructors ---------------------------------------------------
 
 def set_node(node_id: str, **fields: _FieldValue) -> SetNodeFields:
     return SetNodeFields(node_id=node_id, fields=fields)

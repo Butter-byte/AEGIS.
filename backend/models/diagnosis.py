@@ -1,8 +1,7 @@
-"""Diagnosis contract — output of `backend/diagnosis/` (Yyash).
+"""Diagnosis contract — output of ai/ (owned by Yyash).
 
-Source of truth: docs/BACKEND_SCHEMA.md §5. ADVISORY ONLY. This fixes the shape;
-how suspicion / confidence / rationale are produced is Yyash's, and is later
-swappable for an LLM behind the same shape.
+Source of truth: docs/BACKEND_SCHEMA.md §4. Advisory only. This module fixes the
+shape; how suspicion / confidence / rationale are produced is teammate-internal.
 """
 
 from __future__ import annotations
@@ -22,4 +21,3 @@ class Diagnosis(StrictModel):
     suspected_services: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: str = Field(min_length=1, max_length=2000)
-    source: str = Field(default="mock", description='"mock" | "heuristic" | "llm" — provenance')
