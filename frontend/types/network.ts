@@ -4,6 +4,13 @@ export type EdgeStatus = string;
 
 export type ServiceStatus = string;
 
+export type NetworkNodeData = {
+  label: string;
+  status?: "healthy" | "degraded" | "failed";
+  cpu?: number;
+  latency?: number;
+};
+
 export type NetworkNode = {
   id: string;
   status: NodeStatus;

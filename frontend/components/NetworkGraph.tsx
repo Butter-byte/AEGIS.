@@ -1,7 +1,7 @@
 import NetworkNode from "./NetworkNode";
 import NodeInspector from "./NodeInspector";
+import type { NetworkNodeData, NetworkState } from "../types/network";
 import { injectFault } from "../services/api";
-import type { NetworkState } from "../types/network";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 import {
@@ -26,7 +26,7 @@ type NetworkGraphProps = {
 function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const networkNodes = useMemo<Node[]>(() => {
+  const networkNodes = useMemo<Node<NetworkNodeData>[]>(() => {
     if (!networkState) return [];
 
     return Object.values(networkState.nodes).map((node, index) => ({
@@ -55,8 +55,12 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
     }));
   }, [networkState]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(networkNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(networkEdges);
+  const [nodes, setNodes, onNodesChange] =
+    useNodesState<Node<NetworkNodeData>>(networkNodes);
+
+  const [edges, setEdges, onEdgesChange] =
+    useEdgesState(networkEdges);
+
   useEffect(() => {
     setNodes(networkNodes);
     setEdges(networkEdges);
@@ -66,7 +70,7 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
     nodes.find((node) => node.id === selectedNodeId) ?? null;
 
   const onNodeClick = useCallback(
-    (_event: MouseEvent, node: Node) => {
+    (_event: MouseEvent, node: Node<NetworkNodeData>) => {
       setSelectedNodeId(node.id);
     },
     [],
@@ -79,6 +83,7 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
 
     try {
       await injectFault("kill_node", nodeId);
+      onEvent(`Isolation requested for node ${nodeId}.`);
     } catch (error) {
       console.error("Failed to isolate node:", error);
       onEvent(`Failed to isolate node ${nodeId}.`);

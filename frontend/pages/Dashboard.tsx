@@ -3,49 +3,52 @@ import type { NetworkState, StatePayload } from "../types/network";
 import { connectSocket } from "../services/socket";
 import NetworkGraph from "../components/NetworkGraph";
 import EventLog from "../components/EventLog";
+import { ReactFlowProvider } from "@xyflow/react";
 
 function formatWebSocketEvent(message: any): string {
-  const payload = message.payload;
+  const payload = message.payload ?? {};
 
   switch (message.type) {
     case "fault":
-      return `Fault: ${payload.action ?? "event"} — ${payload.fault?.type ?? "unknown"
-        } on ${payload.fault?.target ?? "unknown"}`;
-
-    case "diagnosis":
-      return `Diagnosis: ${payload.diagnosis?.summary ?? "Recovery diagnosis completed"}`;
-
-    case "simulation":
-      return payload.result?.feasible
-        ? `Simulation: recovery plan ${payload.result.plan_id} is feasible`
-        : `Simulation: recovery plan is infeasible`;
-
-    case "safety":
-      return payload.decision?.approved
-        ? `Safety: recovery plan ${payload.decision.plan_id} approved`
-        : `Safety: recovery plan ${payload.decision?.plan_id ?? "unknown"} rejected`;
+      return `Fault injected: ${payload.fault?.target ?? "unknown target"
+        }`;
 
     case "recovery":
       if (payload.stage === "started") {
-        return "Recovery pipeline started";
+        return `Recovery started`;
       }
 
       if (payload.stage === "completed") {
-        return `Recovery completed: ${payload.result?.outcome ?? "finished"}`;
+        return `Recovery completed`;
       }
 
-      return "Recovery event received";
+      return `Recovery: ${payload.stage ?? "event"}`;
+
+    case "diagnosis":
+      return "Diagnosis completed";
+
+    case "simulation":
+      return "Recovery simulation evaluated";
+
+    case "safety":
+      return "Safety decision evaluated";
 
     case "error":
-      return `Error: ${payload.message ?? "Recovery pipeline error"}`;
+      return `System error: ${payload.message ?? "unknown error"
+        }`;
 
     default:
-      return `AEGIS ${message.type.toUpperCase()} event received`;
+      return `System event: ${message.type}`;
   }
 }
 
 function Dashboard() {
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
+  const [events, setEvents] = useState<string[]>([
+    "Network initialized",
+    "All systems operational",
+  ]);
+
   useEffect(() => {
     const connection = connectSocket({
       onOpen: () => {
@@ -80,10 +83,6 @@ function Dashboard() {
 
     return connection.close;
   }, []);
-  const [events, setEvents] = useState<string[]>([
-    "Network initialized",
-    "All systems operational",
-  ]);
 
   const addEvent = (event: string) => {
     setEvents((currentEvents) => [event, ...currentEvents]);
@@ -113,7 +112,9 @@ function Dashboard() {
           </div>
 
           <div className="network-graph">
-            <NetworkGraph networkState={networkState} onEvent={addEvent} />
+            <ReactFlowProvider>
+              <NetworkGraph networkState={networkState} onEvent={addEvent} />
+            </ReactFlowProvider>
           </div>
         </section>
 

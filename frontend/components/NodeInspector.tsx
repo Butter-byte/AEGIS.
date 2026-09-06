@@ -1,19 +1,16 @@
+import { useState } from "react";
 import type { Node } from "@xyflow/react";
 import { runRecovery } from "../services/api";
-
-type NetworkNodeData = {
-  label: string;
-  status?: "healthy" | "degraded" | "failed";
-  cpu?: number;
-  latency?: number;
-};
+import type { NetworkNodeData } from "../types/network";
 
 type NodeInspectorProps = {
-  node: Node | null;
+  node: Node<NetworkNodeData> | null;
   onIsolate: () => void;
 };
 
 function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
+  const [isRecovering, setIsRecovering] = useState(false);
+
   if (!node) {
     return (
       <div className="node-inspector empty">
@@ -22,25 +19,40 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
     );
   }
 
-  const data = node.data as NetworkNodeData;
+  const data = node.data ?? {};
+  const status = data.status ?? "healthy";
+
+  const handleRecovery = async () => {
+    setIsRecovering(true);
+
+    try {
+      await runRecovery();
+    } catch (error) {
+      console.error("Recovery request failed:", error);
+    } finally {
+      setIsRecovering(false);
+    }
+  };
 
   return (
     <div className="node-inspector">
       <div className="inspector-header">
         <div>
           <span className="inspector-label">NODE</span>
-          <h3>{data.label}</h3>
+          <h3>{data.label ?? "Unknown Node"}</h3>
         </div>
 
-        <span className={`inspector-status ${data.status ?? "healthy"}`}>
-          {data.status?.toUpperCase() ?? "HEALTHY"}
+        <span className={`inspector-status ${status}`}>
+          {status.toUpperCase()}
         </span>
       </div>
 
       <div className="inspector-metrics">
         <div>
           <span>CPU UTILIZATION</span>
-          <strong>{data.cpu ?? "--"}%</strong>
+          <strong>
+            {data.cpu !== undefined ? `${data.cpu}%` : "--"}
+          </strong>
         </div>
 
         <div>
@@ -52,23 +64,15 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
       </div>
 
       <div className="inspector-actions">
-        <button onClick={onIsolate}>
+        <button onClick={onIsolate} disabled={isRecovering}>
           ISOLATE NODE
         </button>
 
-        <button
-          onClick={async () => {
-            try {
-              await runRecovery();
-            } catch (error) {
-              console.error("Recovery request failed:", error);
-            }
-          }}
-        >
-          TRIGGER RECOVERY
+        <button onClick={handleRecovery} disabled={isRecovering}>
+          {isRecovering ? "RECOVERING..." : "TRIGGER RECOVERY"}
         </button>
       </div>
-    </div >
+    </div>
   );
 }
 
