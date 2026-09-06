@@ -8,6 +8,10 @@ function formatWebSocketEvent(message: any): string {
   const payload = message.payload;
 
   switch (message.type) {
+    case "fault":
+      return `Fault: ${payload.action ?? "event"} — ${payload.fault?.type ?? "unknown"
+        } on ${payload.fault?.target ?? "unknown"}`;
+
     case "diagnosis":
       return `Diagnosis: ${payload.diagnosis?.summary ?? "Recovery diagnosis completed"}`;
 
@@ -48,31 +52,22 @@ function Dashboard() {
         console.log("AEGIS WebSocket connected");
       },
 
-    onMessage: (message) => {
-    console.log("AEGIS WS MESSAGE:", message);
+      onMessage: (message) => {
+        console.log("AEGIS WS MESSAGE:", message);
 
-    if (message.type === "state") {
-        const payload = message.payload as StatePayload;
-        setNetworkState(payload.state);
-        return;
-    }
+        if (message.type === "state") {
+          const payload = message.payload as StatePayload;
+          setNetworkState(payload.state);
+          return;
+        }
 
-    const payload = message.payload as {
-        message?: string;
-    };
+        const event = formatWebSocketEvent(message);
 
-    if (payload.message) {
-    setEvents((currentEvents) => [
-        payload.message!,
-        ...currentEvents,
-    ]);
-    } else {
-    setEvents((currentEvents) => [
-        `AEGIS ${message.type.toUpperCase()} event received.`,
-        ...currentEvents,
-    ]);
-    }
-    },
+        setEvents((currentEvents) => [
+          event,
+          ...currentEvents,
+        ]);
+      },
 
       onClose: () => {
         console.log("AEGIS WebSocket disconnected");
@@ -81,10 +76,10 @@ function Dashboard() {
       onError: (error) => {
         console.error("AEGIS WebSocket error:", error);
       },
- });
+    });
 
-  return connection.close;
-}, []);
+    return connection.close;
+  }, []);
   const [events, setEvents] = useState<string[]>([
     "Network initialized",
     "All systems operational",

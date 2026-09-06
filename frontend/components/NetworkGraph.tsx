@@ -79,8 +79,6 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
 
     try {
       await injectFault("kill_node", nodeId);
-
-      onEvent(`Fault injected: node ${nodeId}.`);
     } catch (error) {
       console.error("Failed to isolate node:", error);
       onEvent(`Failed to isolate node ${nodeId}.`);

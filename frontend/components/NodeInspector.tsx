@@ -52,14 +52,10 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
       </div>
 
       <div className="inspector-actions">
-        <button
-          onClick={() => {
-            console.log("ISOLATE BUTTON CLICKED");
-            onIsolate();
-          }}
-        >
+        <button onClick={onIsolate}>
           ISOLATE NODE
         </button>
+
         <button
           onClick={async () => {
             try {
@@ -72,7 +68,7 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
           TRIGGER RECOVERY
         </button>
       </div>
-    </div>
+    </div >
   );
 }
 
