@@ -1,0 +1,432 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background: #0a0e14;
+  color: #e6edf3;
+}
+
+button {
+  font: inherit;
+}
+
+.dashboard {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+/* ---------- HEADER ---------- */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 4px;
+}
+
+.topbar span {
+  color: #7d8996;
+  font-size: 13px;
+}
+
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3fb950;
+}
+
+/* ---------- GRID ---------- */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 480px 180px;
+  gap: 16px;
+}
+
+/* ---------- PANELS ---------- */
+
+.panel {
+  background: #0f141b;
+  border: 1px solid #252d36;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.panel-header span {
+  font-size: 10px;
+  color: #3fb950;
+}
+
+/* ---------- NETWORK ---------- */
+
+.network-graph {
+  height: calc(100% - 45px);
+  border: 1px solid #252d36;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ---------- TELEMETRY ---------- */
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.telemetry-grid div {
+  background: #151b23;
+  border: 1px solid #252d36;
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.telemetry-grid span {
+  display: block;
+  color: #697582;
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.telemetry-grid strong {
+  font-size: 22px;
+}
+
+/* ---------- FAULT CONTROLS ---------- */
+
+.fault-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fault-buttons button {
+  background: #151b23;
+  color: #c9d1d9;
+  border: 1px solid #303944;
+  border-radius: 5px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.fault-buttons button:hover {
+  border-color: #8b949e;
+}
+
+/* ---------- EVENT LOG ---------- */
+
+.event-log {
+  font-family: monospace;
+  font-size: 12px;
+  color: #7d8996;
+}
+
+.event-log p {
+  margin: 8px 0;
+}
+
+/* ---------- AEGIS NETWORK NODE ---------- */
+
+.network-node {
+  width: 170px;
+  padding: 12px;
+  background: #111820;
+  border: 1px solid #303944;
+  border-radius: 7px;
+  color: #d8dee4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.network-node.healthy {
+  border-color: #2d6a4f;
+}
+
+.network-node.degraded {
+  border-color: #9a6700;
+}
+
+.network-node.failed {
+  border-color: #b62324;
+}
+
+.node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.node-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.node-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3fb950;
+}
+
+.degraded .node-status {
+  background: #d29922;
+}
+
+.failed .node-status {
+  background: #f85149;
+}
+
+.node-state {
+  font-size: 8px;
+  letter-spacing: 0.7px;
+  color: #7d8996;
+}
+
+.node-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.node-metrics div {
+  background: #171e27;
+  border-radius: 4px;
+  padding: 7px;
+}
+
+.node-metrics span {
+  display: block;
+  color: #697582;
+  font-size: 8px;
+  margin-bottom: 3px;
+}
+
+.node-metrics strong {
+  font-size: 12px;
+}
+
+.network-node .react-flow__handle {
+  width: 5px;
+  height: 5px;
+  background: #7d8996;
+  border: none;
+}
+
+/* ---------- NETWORK CONTAINER ---------- */
+
+.network-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  gap: 12px;
+}
+
+.network-canvas {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- NODE INSPECTOR ---------- */
+
+.node-inspector {
+  width: 230px;
+  flex-shrink: 0;
+  align-self: stretch;
+  padding: 16px;
+  background: #111820;
+  border: 1px solid #303944;
+  border-radius: 7px;
+}
+
+.node-inspector.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #596572;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+.inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #252d36;
+}
+
+.inspector-label {
+  display: block;
+  color: #697582;
+  font-size: 9px;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.inspector-header h3 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 1px;
+}
+
+.inspector-status {
+  font-size: 8px;
+  letter-spacing: 0.7px;
+}
+
+.inspector-status.healthy {
+  color: #3fb950;
+}
+
+.inspector-status.degraded {
+  color: #d29922;
+}
+
+.inspector-status.failed {
+  color: #f85149;
+}
+
+.inspector-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.inspector-metrics div {
+  padding: 10px;
+  background: #171e27;
+  border-radius: 5px;
+}
+
+.inspector-metrics span {
+  display: block;
+  color: #697582;
+  font-size: 8px;
+  margin-bottom: 5px;
+}
+
+.inspector-metrics strong {
+  font-size: 17px;
+}
+
+.inspector-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.inspector-actions button {
+  padding: 9px;
+  background: #151b23;
+  color: #aeb8c2;
+  border: 1px solid #303944;
+  border-radius: 4px;
+  font-size: 9px;
+  letter-spacing: 0.7px;
+  cursor: pointer;
+}
+
+.inspector-actions button:hover {
+  border-color: #697582;
+}
+
+.network-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.event-log {
+  flex-shrink: 0;
+  height: 120px;
+  padding: 12px 14px;
+  background: #111820;
+  border: 1px solid #303944;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.event-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: #697582;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.event-count {
+  color: #8b98a5;
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 82px;
+}
+
+.event-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9da8b3;
+  font-size: 10px;
+}
+
+.event-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #697582;
+}
