@@ -1,4 +1,5 @@
 import type { Node } from "@xyflow/react";
+import { runRecovery } from "../services/api";
 
 type NetworkNodeData = {
   label: string;
@@ -59,7 +60,17 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
         >
           ISOLATE NODE
         </button>
-        <button>TRIGGER RECOVERY</button>
+        <button
+          onClick={async () => {
+            try {
+              await runRecovery();
+            } catch (error) {
+              console.error("Recovery request failed:", error);
+            }
+          }}
+        >
+          TRIGGER RECOVERY
+        </button>
       </div>
     </div>
   );

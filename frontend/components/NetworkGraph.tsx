@@ -1,5 +1,6 @@
 import NetworkNode from "./NetworkNode";
 import NodeInspector from "./NodeInspector";
+import { injectFault } from "../services/api";
 import type { NetworkState } from "../types/network";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
@@ -57,8 +58,8 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(networkNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(networkEdges);
   useEffect(() => {
-  setNodes(networkNodes);
-  setEdges(networkEdges);
+    setNodes(networkNodes);
+    setEdges(networkEdges);
   }, [networkNodes, networkEdges, setNodes, setEdges]);
 
   const selectedNode =
@@ -71,33 +72,20 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
     [],
   );
 
-  const isolateNode = useCallback(() => {
-  if (!selectedNode) return;
+  const isolateNode = useCallback(async () => {
+    if (!selectedNode) return;
 
-  const nodeId = selectedNode.id;
+    const nodeId = selectedNode.id;
 
-  setNodes((currentNodes) =>
-    currentNodes.map((node) => {
-      if (node.id !== nodeId) return node;
+    try {
+      await injectFault("kill_node", nodeId);
 
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          status: "failed",
-        },
-      };
-    }),
-  );
-
-  setEdges((currentEdges) =>
-    currentEdges.filter(
-      (edge) => edge.source !== nodeId && edge.target !== nodeId,
-    ),
-  );
-
-  onEvent(`Node ${nodeId} isolated.`);
-}, [selectedNode, setNodes, setEdges, onEvent]);
+      onEvent(`Fault injected: node ${nodeId}.`);
+    } catch (error) {
+      console.error("Failed to isolate node:", error);
+      onEvent(`Failed to isolate node ${nodeId}.`);
+    }
+  }, [selectedNode, onEvent]);
 
   return (
     <div className="network-container">
