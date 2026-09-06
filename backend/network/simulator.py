@@ -17,7 +17,6 @@ from backend.models.recovery import (
 )
 from backend.models.state import EdgeState, NetworkState, NodeState, ServiceState
 
-
 def build_seed() -> NetworkState:
     """Build the canonical 15-node seed used by StateManager."""
     node_ids = [f"N{i}" for i in range(1, 16)]
@@ -168,3 +167,5 @@ def apply_action(state: NetworkState, action: RecoveryAction) -> NetworkState:
 
     simulated.updated_at = utcnow()
     return simulated
+
+

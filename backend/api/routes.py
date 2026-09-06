@@ -2,9 +2,9 @@
 
 Source of truth: docs/TRD.md §5, docs/BACKEND_SCHEMA.md §8.
 
-Fully implemented (foundation): GET /network/state, POST /network/reset.
-Stubbed (teammate modules not wired): telemetry, faults, diagnose, plan  -> 501.
-POST /recovery/run executes the real pipeline and returns its honest outcome.
+The state, telemetry, fault, diagnosis, planning, and recovery routes all use
+the services composed by AppContext. POST /recovery/run executes the complete
+deterministic MVP pipeline.
 
 No domain logic here. No API-side state — GET /network/state returns the
 canonical StateManager state.
@@ -20,7 +20,6 @@ from backend.models.run import PlanRequest, RunRequest
 from backend.models.state import NetworkState
 
 router = APIRouter()
-
 
 def _ctx(request: Request):
     return request.app.state.ctx
@@ -38,26 +37,27 @@ async def reset_network(request: Request) -> NetworkState:
     return _ctx(request).reset_state()
 
 
-# --- telemetry / faults (Sahil — not wired) ---------------------------
+# --- telemetry / faults -------------------------------------------------
 
 @router.get("/telemetry")
 def get_telemetry(request: Request):
-    raise NotImplementedYet("telemetry is not wired yet — telemetry/ (Sahil)")
+    return _ctx(request).telemetry.derive(_ctx(request).state.get_state())
 
 
 @router.get("/faults")
 def list_faults(request: Request):
-    raise NotImplementedYet("fault listing is not wired yet — faults/ (Sahil)")
+    return _ctx(request).faults.active()
 
 
 @router.post("/faults", status_code=201)
 async def inject_fault(request: Request, body: FaultRequest):
-    raise NotImplementedYet("fault injection is not wired yet — faults/ (Sahil)")
+    return _ctx(request).faults.inject(body)
 
 
 @router.delete("/faults/{fault_id}")
 async def clear_fault(request: Request, fault_id: str):
-    raise NotImplementedYet("fault clearing is not wired yet — faults/ (Sahil)")
+    _ctx(request).faults.clear(fault_id)
+    return {"cleared": fault_id}
 
 
 # --- recovery -------------------------------------------------------
@@ -67,7 +67,7 @@ def recovery_diagnose(request: Request):
     try:
         return _ctx(request).pipeline.diagnose()
     except (NotImplementedError, PipelineError) as exc:
-        raise NotImplementedYet(f"diagnosis is not wired yet — ai/ (Yyash): {exc}") from exc
+        raise NotImplementedYet(f"diagnosis unavailable: {exc}") from exc
 
 
 @router.post("/recovery/plan")
@@ -78,7 +78,7 @@ def recovery_plan(request: Request, body: PlanRequest | None = None):
         )
         return {"diagnosis": diagnosis, "candidates": candidates}
     except (NotImplementedError, PipelineError) as exc:
-        raise NotImplementedYet(f"planning is not wired yet — ai/ (Yyash): {exc}") from exc
+        raise NotImplementedYet(f"planning unavailable: {exc}") from exc
 
 
 @router.post("/recovery/run")

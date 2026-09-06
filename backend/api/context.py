@@ -18,10 +18,15 @@ from backend.config import DEFAULT_POLICY
 from backend.models.state import NetworkState
 from backend.pipeline import Pipeline
 from backend.state.manager import StateManager
-from backend.state.seed import build_seed
+from backend.network.simulator import build_seed
+from backend.telemetry import TelemetryEngine
+from backend.faults import FaultInjector
+from backend.ai import HeuristicPlanner
+from backend.simulation.twin import DigitalTwin
+from backend.safety import SafetyEngine
 
-# TEMPORARY seed source. Single swap point: when `backend.network.build_seed`
-# exists (Sahil), change this one alias. Nothing else references the seed.
+# Single seed source for the running simulator. Nothing else constructs the
+# canonical live NetworkState.
 SeedFactory = Callable[[], NetworkState]
 _seed_factory: SeedFactory = build_seed
 
@@ -32,6 +37,8 @@ class AppContext:
     pipeline: Pipeline
     broadcaster: Broadcaster
     seed_factory: SeedFactory
+    faults: FaultInjector
+    telemetry: TelemetryEngine
 
     @classmethod
     def build(cls, seed_factory: SeedFactory = _seed_factory) -> "AppContext":
@@ -45,14 +52,22 @@ class AppContext:
             snapshot.version,
         ))
 
+        faults = FaultInjector(state)
+        telemetry = TelemetryEngine()
+        planner = HeuristicPlanner()
+
         pipeline = Pipeline(
             state=state,
             policy=DEFAULT_POLICY,
             publisher=broadcaster.publish,
-            # telemetry / faults / diagnoser / planner / twin / safety:
-            # left as NotImplemented* stubs until teammate modules land.
+            telemetry=telemetry,
+            faults=faults,
+            diagnoser=planner,
+            planner=planner,
+            twin=DigitalTwin(),
+            safety=SafetyEngine(),
         )
-        return cls(state=state, pipeline=pipeline, broadcaster=broadcaster, seed_factory=seed_factory)
+        return cls(state=state, pipeline=pipeline, broadcaster=broadcaster, seed_factory=seed_factory, faults=faults, telemetry=telemetry)
 
     def reset_state(self) -> NetworkState:
         """Rebuild the network from the seed (a normal versioned mutation)."""
