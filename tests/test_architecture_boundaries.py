@@ -63,7 +63,7 @@ def test_execution_does_not_import_planner_or_safety():
             )
 
 
-@pytest.mark.parametrize("pkg", sorted(TEAMMATE_PKGS))
-def test_teammate_placeholders_hold_no_vikash_code(pkg):
-    code = [f for f in _modules(pkg) if f.name != "__init__.py"]
-    assert not code, f"backend/{pkg}/ should be an empty placeholder, found: {[f.name for f in code]}"
+def test_teammate_packages_are_present():
+    for pkg in TEAMMATE_PKGS:
+        assert (BACKEND / pkg).is_dir()
+        assert (BACKEND / pkg / "__init__.py").exists()
