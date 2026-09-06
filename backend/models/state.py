@@ -48,6 +48,7 @@ class EdgeState(StrictModel):
 class ServiceState(StrictModel):
     id: str = Field(pattern=SERVICE_ID)
     host_node: str = Field(pattern=NODE_ID)
+    path: list[str] = Field(default_factory=list, description="authoritative assigned route from client to host")
     required_bandwidth: float = Field(ge=0.0, description="bandwidth needed on the path (Mbps)")
     status: ServiceStatus
     depends_on: list[str] = Field(default_factory=list)

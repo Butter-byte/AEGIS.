@@ -16,6 +16,42 @@ from backend.models.recovery import (
     RerouteAction,
 )
 from backend.models.state import EdgeState, NetworkState, NodeState, ServiceState
+from backend.state.mutations import Mutation, set_edge, set_node
+
+
+class NetworkModel:
+    """NetworkModel contract used by simulation, telemetry, and recovery."""
+
+    def resolve_path(
+        self,
+        state: NetworkState,
+        source: str,
+        target: str,
+        *,
+        avoid_nodes: Iterable[str] = (),
+        avoid_edges: Iterable[str] = (),
+    ) -> list[str] | None:
+        return shortest_path(state, source, target, avoid_nodes=avoid_nodes, avoid_edges=avoid_edges)
+
+    def recompute_status(self, state: NetworkState) -> list[Mutation]:
+        mutations: list[Mutation] = []
+        for node in state.nodes.values():
+            expected = NodeStatus.healthy
+            load_ratio = node.load / node.capacity
+            if node.status in {NodeStatus.failed, NodeStatus.quarantined}:
+                continue
+            if node.cpu_percent >= 90.0 or load_ratio >= 0.90 or node.packet_loss_percent >= 20.0:
+                expected = NodeStatus.degraded
+            if node.status != expected:
+                mutations.append(set_node(node.id, status=expected.value))
+
+        for edge in state.edges:
+            if edge.status == EdgeStatus.failed:
+                continue
+            expected = EdgeStatus.congested if edge.utilization_percent >= 90.0 or edge.packet_loss_percent >= 20.0 else EdgeStatus.active
+            if edge.status != expected:
+                mutations.append(set_edge(edge.id, status=expected.value))
+        return mutations
 
 def build_seed() -> NetworkState:
     """Build the canonical 15-node seed used by StateManager."""
@@ -54,24 +90,27 @@ def build_seed() -> NetworkState:
         "svc-auth": ServiceState(
             id="svc-auth",
             host_node="N2",
+            path=[],
             required_bandwidth=250.0,
             status=ServiceStatus.running,
         ),
         "svc-payment": ServiceState(
             id="svc-payment",
             host_node="N7",
+            path=[],
             required_bandwidth=500.0,
             status=ServiceStatus.running,
         ),
         "svc-api": ServiceState(
             id="svc-api",
             host_node="N11",
+            path=[],
             required_bandwidth=350.0,
             status=ServiceStatus.running,
         ),
     }
 
-    return NetworkState(
+    state = NetworkState(
         version=0,
         updated_at=utcnow(),
         nodes=nodes,
@@ -79,6 +118,10 @@ def build_seed() -> NetworkState:
         services=services,
         active_fault_ids=[],
     )
+    model = NetworkModel()
+    for service in state.services.values():
+        service.path = model.resolve_path(state, "N1", service.host_node) or []
+    return state
 
 
 def to_graph(state: NetworkState) -> nx.Graph:
