@@ -1,0 +1,14 @@
+# AEGIS backend — pinned runtime + test dependencies.
+# Compatible with Python 3.11–3.13. Install into a venv:
+#   python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+#
+# Deliberately minimal. No Redis / Kafka / Postgres / Celery / agent frameworks.
+
+fastapi==0.115.6          # REST + WebSocket app framework
+uvicorn[standard]==0.34.0 # ASGI server (brings websockets, httptools)
+pydantic==2.10.4          # canonical models / validation
+networkx==3.4.2           # graph algorithms (used by network/ + twin/ — Sahil)
+
+# --- test / dev ---
+pytest==8.3.4
+httpx==0.28.1             # FastAPI TestClient dependency
