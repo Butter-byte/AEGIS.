@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "message_id": "demo-INC-1042-001",
+  "generated_at": "2026-09-06T14:05:00Z",
+  "incident": {
+    "incident_id": "INC-1042",
+    "status": "active",
+    "severity": "critical",
+    "detected_at": "2026-09-06T14:02:10Z",
+    "summary": "Payment API requests are failing in ap-south-1.",
+    "affected_services": ["payment-api"],
+    "affected_regions": ["ap-south-1"]
+  },
+  "collection_window": {
+    "start": "2026-09-06T13:55:00Z",
+    "end": "2026-09-06T14:05:00Z",
+    "sample_interval_seconds": 30
+  },
+  "nodes": [
+    {
+      "node_id": "router-r3",
+      "name": "Router R3",
+      "node_type": "router",
+      "role": "core",
+      "region": "ap-south-1",
+      "management_state": "managed",
+      "health": {
+        "status": "degraded",
+        "score": 38,
+        "last_checked_at": "2026-09-06T14:05:00Z",
+        "reasons": ["High CPU", "Packet loss", "Saturated interface"]
+      },
+      "telemetry": {
+        "cpu": {"usage_percent": 97.0, "baseline_percent": 32.0},
+        "memory": {"usage_percent": 65.0, "available_mb": 1024},
+        "network": {
+          "latency_ms": {"average": 250.0, "baseline_average": 30.0, "p95": 340.0},
+          "packet_loss_percent": {"value": 3.5, "baseline": 0.0},
+          "throughput_mbps": {"inbound": 960.0, "outbound": 720.0}
+        }
+      },
+      "interfaces": [
+        {
+          "interface_id": "router-r3:eth0",
+          "name": "eth0",
+          "admin_status": "up",
+          "oper_status": "up",
+          "connected_to": "payment-gateway-01:eth1",
+          "capacity_mbps": 1000,
+          "utilization_percent": {"inbound": 96.0, "outbound": 72.0},
+          "packet_loss_percent": 3.1,
+          "error_count": 0,
+          "drop_count": 540
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "link_id": "link-r3-payment",
+      "source_node_id": "router-r3",
+      "source_interface_id": "router-r3:eth0",
+      "destination_node_id": "payment-gateway-01",
+      "destination_interface_id": "payment-gateway-01:eth1",
+      "link_type": "ethernet",
+      "capacity_mbps": 1000,
+      "status": "degraded",
+      "metrics": {"latency_ms": 245.0, "packet_loss_percent": 3.1, "utilization_percent": 96.0, "throughput_mbps": 960.0, "drop_count": 540}
+    }
+  ],
+  "services": [
+    {
+      "service_id": "payment-api",
+      "name": "Payment API",
+      "status": "degraded",
+      "dependent_node_ids": ["router-r3"],
+      "metrics": {"availability_percent": 58.0, "error_rate_percent": 42.0, "p95_response_time_ms": 4200.0, "requests_per_second": 850.0}
+    }
+  ],
+  "events": [
+    {
+      "event_id": "evt-001",
+      "timestamp": "2026-09-06T14:00:52Z",
+      "source_type": "router",
+      "source_id": "router-r3",
+      "event_type": "configuration_change",
+      "severity": "warning",
+      "summary": "BGP policy changed immediately before the incident."
+    }
+  ],
+  "data_quality": {"overall_status": "good", "missing_fields": [], "stale_sources": [], "simulator_mode": true}
+}
