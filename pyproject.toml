@@ -1,0 +1,13 @@
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "AEGIS — safety-gated autonomous network recovery on a simulated network"
+requires-python = ">=3.11,<3.14"
+
+# Runtime + dev dependencies are pinned in backend/requirements.txt (the install path).
+# This file exists for pytest configuration.
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
