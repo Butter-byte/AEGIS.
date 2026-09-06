@@ -51,7 +51,14 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
       </div>
 
       <div className="inspector-actions">
-        <button onClick={onIsolate}>ISOLATE NODE</button>
+        <button
+          onClick={() => {
+            console.log("ISOLATE BUTTON CLICKED");
+            onIsolate();
+          }}
+        >
+          ISOLATE NODE
+        </button>
         <button>TRIGGER RECOVERY</button>
       </div>
     </div>

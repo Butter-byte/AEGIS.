@@ -1,19 +1,78 @@
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { NetworkState, StatePayload } from "../types/network";
 import { connectSocket } from "../services/socket";
 import NetworkGraph from "../components/NetworkGraph";
 import EventLog from "../components/EventLog";
 
+function formatWebSocketEvent(message: any): string {
+  const payload = message.payload;
+
+  switch (message.type) {
+    case "diagnosis":
+      return `Diagnosis: ${payload.diagnosis?.summary ?? "Recovery diagnosis completed"}`;
+
+    case "simulation":
+      return payload.result?.feasible
+        ? `Simulation: recovery plan ${payload.result.plan_id} is feasible`
+        : `Simulation: recovery plan is infeasible`;
+
+    case "safety":
+      return payload.decision?.approved
+        ? `Safety: recovery plan ${payload.decision.plan_id} approved`
+        : `Safety: recovery plan ${payload.decision?.plan_id ?? "unknown"} rejected`;
+
+    case "recovery":
+      if (payload.stage === "started") {
+        return "Recovery pipeline started";
+      }
+
+      if (payload.stage === "completed") {
+        return `Recovery completed: ${payload.result?.outcome ?? "finished"}`;
+      }
+
+      return "Recovery event received";
+
+    case "error":
+      return `Error: ${payload.message ?? "Recovery pipeline error"}`;
+
+    default:
+      return `AEGIS ${message.type.toUpperCase()} event received`;
+  }
+}
+
 function Dashboard() {
+  const [networkState, setNetworkState] = useState<NetworkState | null>(null);
   useEffect(() => {
     const connection = connectSocket({
       onOpen: () => {
         console.log("AEGIS WebSocket connected");
       },
 
-      onMessage: (message) => {
-        console.log("AEGIS WebSocket message:", message);
-      },
+    onMessage: (message) => {
+    console.log("AEGIS WS MESSAGE:", message);
+
+    if (message.type === "state") {
+        const payload = message.payload as StatePayload;
+        setNetworkState(payload.state);
+        return;
+    }
+
+    const payload = message.payload as {
+        message?: string;
+    };
+
+    if (payload.message) {
+    setEvents((currentEvents) => [
+        payload.message!,
+        ...currentEvents,
+    ]);
+    } else {
+    setEvents((currentEvents) => [
+        `AEGIS ${message.type.toUpperCase()} event received.`,
+        ...currentEvents,
+    ]);
+    }
+    },
 
       onClose: () => {
         console.log("AEGIS WebSocket disconnected");
@@ -59,7 +118,7 @@ function Dashboard() {
           </div>
 
           <div className="network-graph">
-            <NetworkGraph onEvent={addEvent} />
+            <NetworkGraph networkState={networkState} onEvent={addEvent} />
           </div>
         </section>
 
