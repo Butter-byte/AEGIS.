@@ -2,6 +2,13 @@
 
 The integration currency: every test builds from here rather than hand-rolling
 instances that drift from docs/BACKEND_SCHEMA.md.
+
+Aligned to the architecture on `integration`:
+  * SimulationResult / SimMetrics / SimDelta live in backend.models.simulation
+    and carry NO `id` (see BACKEND_SCHEMA.md §6.1).
+  * Diagnosis has no `source` field.
+  * RecoveryPlan.source is "llm" | "heuristic" (§5).
+  * NodeTelemetry fields are cpu / latency / packet_loss / status (§3).
 """
 
 from __future__ import annotations
@@ -28,13 +35,12 @@ from backend.models.enums import (
     ServiceStatus,
     ViolationLevel,
 )
+from backend.models.simulation import SimDelta, SimMetrics
 from backend.models.state import EdgeState, NodeState, ServiceState
 from backend.models.telemetry import NodeTelemetry
-from backend.models.twin import SimDelta, SimMetrics
 
 DX_ID = "dx-00aa11bb"
 PLAN_ID = "plan-00aa11bb"
-SIM_ID = "sim-00aa11bb"
 RUN_ID = "run-00aa11bb"
 FAULT_ID = "flt-00aa11bb"
 
@@ -99,7 +105,7 @@ def telemetry() -> Telemetry:
         at=utcnow(), based_on_version=0, network_availability=1.0, avg_latency=10.0,
         max_latency=20.0, total_packet_loss=0.0, active_nodes=6, failed_nodes=0,
         quarantined_nodes=0, congested_edges=0, failed_edges=0,
-        per_node={"N1": NodeTelemetry(cpu_percent=20.0, latency_ms=5.0, packet_loss_percent=0.0, status=NodeStatus.healthy)},
+        per_node={"N1": NodeTelemetry(cpu=20.0, latency=5.0, packet_loss=0.0, status=NodeStatus.healthy)},
     )
 
 
@@ -115,7 +121,7 @@ def diagnosis() -> Diagnosis:
     return Diagnosis(
         id=DX_ID, created_at=utcnow(), based_on_version=0, summary="N2 down",
         suspected_nodes=["N2"], suspected_edges=[], suspected_services=["svc-auth"],
-        confidence=0.9, rationale="node N2 reports failed status", source="mock",
+        confidence=0.9, rationale="node N2 reports failed status",
     )
 
 
@@ -128,7 +134,7 @@ def recovery_plan(based_on_version: int = 0) -> RecoveryPlan:
             {"type": "quarantine_node", "node_id": "N2"},
             {"type": "migrate_service", "service_id": "svc-auth", "to_node": "N3"},
         ],
-        source="mock",
+        source="heuristic",
     )
 
 
@@ -142,11 +148,11 @@ def sim_metrics() -> SimMetrics:
 def simulation_result(feasible: bool = True) -> SimulationResult:
     if feasible:
         return SimulationResult(
-            id=SIM_ID, plan_id=PLAN_ID, based_on_version=0, feasible=True, metrics=sim_metrics(),
+            plan_id=PLAN_ID, based_on_version=0, feasible=True, metrics=sim_metrics(),
             delta=SimDelta(availability=0.0, avg_latency=1.0, max_latency=2.0), computed_at=utcnow(),
         )
     return SimulationResult(
-        id=SIM_ID, plan_id=PLAN_ID, based_on_version=0, feasible=False,
+        plan_id=PLAN_ID, based_on_version=0, feasible=False,
         infeasible_reason="no path for svc-auth", computed_at=utcnow(),
     )
 

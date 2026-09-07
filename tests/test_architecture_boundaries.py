@@ -41,10 +41,13 @@ def test_models_is_a_leaf_package():
             )
 
 
-def test_pipeline_ports_imports_no_teammate_package():
-    for imp in _imports(BACKEND / "pipeline" / "ports.py"):
+def test_pipeline_imports_no_teammate_package():
+    # Ports are inline Protocols in backend/pipeline.py now; the orchestrator must
+    # still reach teammate modules only through injected ports, never by import.
+    for imp in _imports(BACKEND / "pipeline.py"):
         assert not any(imp.startswith(f"backend.{p}") for p in TEAMMATE_PKGS), (
-            f"ports.py imports {imp} — ports must depend only on backend.models / backend.state"
+            f"pipeline.py imports {imp} — the orchestrator talks to teammate "
+            f"modules only via injected ports"
         )
 
 

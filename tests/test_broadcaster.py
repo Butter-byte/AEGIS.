@@ -1,12 +1,15 @@
-"""Broadcaster — per-connection seq, fan-out, slow-consumer isolation."""
+"""Broadcaster (backend/api/ws.py — the one AppContext wires) — per-connection
+seq, fan-out, and slow/dead-consumer isolation.
+
+The parallel backend/events/broadcaster.py is unwired dead code (flagged in the
+report); this covers the live one.
+"""
 
 from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from backend.events.broadcaster import Broadcaster
+from backend.api.ws import Broadcaster, _pump
 
 
 class _Sink:
@@ -35,18 +38,28 @@ def test_fan_out_to_all_connections():
     assert a.queue.qsize() == 1 and c.queue.qsize() == 1
 
 
-def test_pump_delivers_then_stops_on_dead_socket():
+def test_unregister_stops_delivery():
+    b = Broadcaster()
+    c = b.register(_Sink())
+    b.unregister(c)
+    b.publish("state", {}, 1)
+    assert c.queue.qsize() == 0
+
+
+def test_pump_delivers_then_stops_on_cancel():
     b = Broadcaster()
     sink = _Sink()
     conn = b.register(sink)
     b.publish("state", {"n": 1}, 1)
 
     async def drive():
-        task = asyncio.create_task(b.pump(conn))
+        task = asyncio.create_task(_pump(conn))
         await asyncio.sleep(0.01)
         task.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        try:
             await task
+        except asyncio.CancelledError:
+            pass
 
     asyncio.run(drive())
     assert sink.received and sink.received[0]["payload"] == {"n": 1}

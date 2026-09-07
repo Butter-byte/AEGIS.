@@ -1,37 +1,27 @@
+"""Shared test fixtures, aligned to the `integration` composition root.
+
+The runtime wires real deterministic engines in `AppContext.build()` (no `Ports`
+container, no `create_app(ports=...)`, no teammate stubs). Tests exercise that
+same wiring; `tests/fakes.py` supplies stand-ins only where a test needs to force
+a specific pipeline branch.
+"""
+
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.context import Ports
 from backend.execution.executor import Executor
+from backend.faults.injector import FaultInjector
 from backend.main import create_app
 from backend.models.faults import FaultRequest
+from backend.network.simulator import build_seed
 from backend.state.manager import StateManager
-from backend.state.mutations import set_active_faults
-from backend.state.preview import preview
-from backend.state.seed import build_seed
-from tests import fakes
 
 
-def all_fake_ports() -> Ports:
-    return Ports(
-        network_model=fakes.FakeNetworkModel(),
-        telemetry=fakes.FakeTelemetry(),
-        faults=fakes.FakeFaultInjector(),
-        diagnoser=fakes.FakeDiagnoser(),
-        planner=fakes.FakePlanner(),
-        twin=fakes.FakeTwin(),
-        safety=fakes.FakeSafetyGate(),
-    )
-
-
-def inject_fault(sm: StateManager, injector, model, ftype: str, target: str) -> None:
-    """Mirror the /faults route: structural muts + status recompute, one batch."""
-    fault, structural = injector.inject(FaultRequest(type=ftype, target=target), sm.get_state())
-    structural = [*structural, set_active_faults([f.id for f in injector.active()])]
-    batch = [*structural, *model.recompute_status(preview(sm.get_state(), structural))]
-    sm.apply_actions(batch, reason=f"fault {fault.id}")
+def inject_fault(injector: FaultInjector, ftype: str, target: str):
+    """Inject a fault through the real FaultInjector (mirrors POST /faults)."""
+    return injector.inject(FaultRequest(type=ftype, target=target))
 
 
 @pytest.fixture
@@ -41,19 +31,16 @@ def state() -> StateManager:
 
 @pytest.fixture
 def executor(state: StateManager) -> Executor:
-    return Executor(state, network_model=fakes.FakeNetworkModel())
+    return Executor(state)
 
 
 @pytest.fixture
-def wired_client() -> TestClient:
-    app = create_app(ports=all_fake_ports())
-    with TestClient(app) as c:
+def client() -> TestClient:
+    with TestClient(create_app()) as c:
         yield c
 
 
+# `wired_client` kept as an alias: the runtime is always fully wired now.
 @pytest.fixture
-def bare_client() -> TestClient:
-    """No teammate ports wired — for testing the module_not_wired path."""
-    app = create_app(ports=Ports())
-    with TestClient(app) as c:
-        yield c
+def wired_client(client: TestClient) -> TestClient:
+    return client

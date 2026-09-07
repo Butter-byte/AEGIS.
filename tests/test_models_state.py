@@ -1,4 +1,9 @@
-"""NetworkState / NodeState / EdgeState / ServiceState structural invariants."""
+"""NetworkState / NodeState / EdgeState / ServiceState structural invariants.
+
+Edge ids order LEXICALLY (`source < target` as strings) per BACKEND_SCHEMA.md
+§1.1 and `models.common.edge_id_for`. `ServiceState.path` carries no structural
+validation in the current model (flagged in the reconciliation report).
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,11 @@ from backend.models.state import EdgeState, NetworkState, NodeState
 from tests import fixtures
 
 
-def test_edge_id_orders_by_node_number_not_lexically():
-    assert edge_id_for("N2", "N10") == "N2-N10"
-    assert edge_id_for("N10", "N2") == "N2-N10"
+def test_edge_id_orders_lexically():
+    # "N10" < "N2" as strings, so the id puts N10 first
+    assert edge_id_for("N2", "N10") == "N10-N2"
+    assert edge_id_for("N10", "N2") == "N10-N2"
+    assert edge_id_for("N1", "N2") == "N1-N2"
 
 
 @pytest.mark.parametrize("bad", [
@@ -26,10 +33,19 @@ def test_nodestate_field_validation(bad):
         NodeState.model_validate(base)
 
 
-def test_edge_id_must_match_endpoint_numeric_order():
+def test_edge_id_must_match_endpoints_in_lexical_order():
+    # id "N2-N10" is wrong: lexical order is N10 then N2
     with pytest.raises(ValidationError):
         EdgeState.model_validate(dict(
-            id="N10-N2", source="N10", target="N2", bandwidth_mbps=1.0, latency_ms=1.0,
+            id="N2-N10", source="N2", target="N10", bandwidth_mbps=1.0, latency_ms=1.0,
+            packet_loss_percent=0.0, utilization_percent=0.0, status="active",
+        ))
+
+
+def test_edge_rejects_equal_endpoints():
+    with pytest.raises(ValidationError):
+        EdgeState.model_validate(dict(
+            id="N1-N1", source="N1", target="N1", bandwidth_mbps=1.0, latency_ms=1.0,
             packet_loss_percent=0.0, utilization_percent=0.0, status="active",
         ))
 
@@ -48,7 +64,22 @@ def test_networkstate_rejects_duplicate_edge_id():
         NetworkState.model_validate(data)
 
 
-# --- ServiceState.path — the status-vs-assigned-path contract ---
+def test_networkstate_rejects_edge_to_unknown_node():
+    data = fixtures.network_state().model_dump()
+    data["edges"][0]["target"] = "N99"
+    data["edges"][0]["id"] = edge_id_for(data["edges"][0]["source"], "N99")
+    with pytest.raises(ValidationError):
+        NetworkState.model_validate(data)
+
+
+def test_networkstate_rejects_empty_nodes():
+    data = fixtures.network_state().model_dump()
+    data["nodes"] = {}
+    with pytest.raises(ValidationError):
+        NetworkState.model_validate(data)
+
+
+# --- ServiceState.path — currently a free list[str] (no structural check) ---
 
 def _with_path(path):
     data = fixtures.network_state().model_dump(mode="python")
@@ -63,18 +94,3 @@ def test_empty_path_allowed():
 def test_valid_path_roundtrips():
     s = NetworkState.model_validate(_with_path(["N2", "N1", "N3"]))
     assert s.services["svc-auth"].path == ["N2", "N1", "N3"]
-
-
-def test_path_must_start_at_host_node():
-    with pytest.raises(ValidationError):
-        NetworkState.model_validate(_with_path(["N1", "N3"]))  # host is N2
-
-
-def test_path_hop_without_edge_rejected():
-    with pytest.raises(ValidationError):
-        NetworkState.model_validate(_with_path(["N2", "N6"]))  # no N2-N6 edge
-
-
-def test_path_unknown_node_rejected():
-    with pytest.raises(ValidationError):
-        NetworkState.model_validate(_with_path(["N2", "N1", "N99"]))

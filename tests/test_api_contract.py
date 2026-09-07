@@ -1,7 +1,16 @@
-"""REST contract — shapes, status codes, and the module_not_wired path."""
+"""REST contract — shapes and status codes on `integration`.
+
+The runtime is always fully wired (real deterministic engines in AppContext), so
+the old `module_not_wired` / 501 scaffolding tests are gone. Response shapes here
+track `backend/api/routes.py` as implemented; where that diverges from
+docs/BACKEND_SCHEMA.md §8 it is called out in the reconciliation report.
+"""
 
 from __future__ import annotations
 
+import pytest
+
+from backend.models.faults import Fault
 from backend.models.state import NetworkState
 
 
@@ -17,25 +26,21 @@ def test_reset_is_a_forward_version_bump(wired_client):
     assert v1 == v0 + 1
 
 
-def test_unwired_telemetry_returns_501(bare_client):
-    r = bare_client.get("/telemetry")
-    assert r.status_code == 501
-    assert r.json()["error"]["code"] == "module_not_wired"
-
-
-def test_unwired_recovery_run_reports_error_outcome_not_500(bare_client):
-    r = bare_client.post("/recovery/run")
+def test_telemetry_endpoint_returns_projection(wired_client):
+    r = wired_client.get("/telemetry")
     assert r.status_code == 200
-    assert r.json()["outcome"] == "error"
+    body = r.json()
+    assert 0.0 <= body["network_availability"] <= 1.0
+    assert "per_node" in body
 
 
-def test_inject_fault_shape_and_version_bump(wired_client):
+def test_inject_fault_returns_fault_and_bumps_version(wired_client):
     v0 = wired_client.get("/network/state").json()["version"]
     r = wired_client.post("/faults", json={"type": "kill_node", "target": "N2"})
     assert r.status_code == 201
-    body = r.json()
-    assert body["fault"]["type"] == "kill_node"
-    assert body["state"]["version"] == v0 + 1
+    Fault.model_validate(r.json())
+    assert r.json()["type"] == "kill_node"
+    assert wired_client.get("/network/state").json()["version"] == v0 + 1
 
 
 def test_malformed_fault_request_is_422(wired_client):
@@ -44,6 +49,11 @@ def test_malformed_fault_request_is_422(wired_client):
     assert r.json()["error"]["code"] == "validation_error"
 
 
+@pytest.mark.xfail(
+    reason="gap B: FaultInjector.clear raises StateInvariantError (not an AegisError), "
+    "so an unknown fault id yields 500 instead of the documented 404 — see report",
+    strict=True,
+)
 def test_clear_unknown_fault_is_404(wired_client):
     r = wired_client.delete("/faults/flt-deadbeef")
     assert r.status_code == 404
