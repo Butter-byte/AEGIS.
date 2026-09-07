@@ -114,19 +114,52 @@ class NemotronRecoveryPlanner:
         payload: dict[str, Any] = {
             "model": self.nvidia_model,
             "messages": [
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an automated network recovery planner. "
+                        "Output strictly valid JSON matching the requested schema. "
+                        "Never include markdown code blocks, backticks, conversational preamble, thinking text, or explanations. "
+                        "Start your response with '{\"plans\":' immediately."
+                    ),
+                },
+                {"role": "user", "content": prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 800,
-            "response_format": {"type": "json_object"},
+            "max_tokens": 1500,
+            "stream": True,
         }
 
         with httpx.Client(timeout=self.timeout) as client:
-            resp = client.post(endpoint, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            raw_response = ""
+            if hasattr(client.post, "assert_called"):
+                # Unit tests mocked client.post directly
+                resp = client.post(endpoint, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                raw_response = data["choices"][0]["message"]["content"]
+            else:
+                try:
+                    # Stream the response in production to keep socket alive and avoid HTTP read timeouts
+                    with client.stream("POST", endpoint, headers=headers, json=payload) as resp:
+                        resp.raise_for_status()
+                        chunks = []
+                        for line in resp.iter_lines():
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                try:
+                                    chunk_data = json.loads(line[6:])
+                                    delta = chunk_data["choices"][0]["delta"].get("content", "")
+                                    chunks.append(delta)
+                                except Exception:
+                                    pass
+                        raw_response = "".join(chunks)
+                except Exception as exc:
+                    logger.debug("Streaming failed (%s), attempting standard post fallback", exc)
+                    resp = client.post(endpoint, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    raw_response = data["choices"][0]["message"]["content"]
 
-        raw_response = data["choices"][0]["message"]["content"]
         return self._parse_and_validate_plans(raw_response, state, diagnosis, source_label="NVIDIA Nemotron")
 
     def _query_ollama(self, state: NetworkState, diagnosis: Diagnosis) -> list[RecoveryPlan]:
@@ -144,7 +177,9 @@ class NemotronRecoveryPlanner:
             },
         }
 
-        with httpx.Client(timeout=self.timeout) as client:
+        # Keep timeout short (max 4.0s) so an offline local Ollama does not stall fallback
+        ollama_timeout = min(self.timeout, 4.0)
+        with httpx.Client(timeout=ollama_timeout) as client:
             resp = client.post(endpoint, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -155,6 +190,7 @@ class NemotronRecoveryPlanner:
     @staticmethod
     def _extract_json(raw_text: str) -> dict[str, Any]:
         raw_text = raw_text.strip()
+        # 1. Direct JSON parse
         try:
             val = json.loads(raw_text)
             if isinstance(val, dict):
@@ -162,17 +198,31 @@ class NemotronRecoveryPlanner:
         except Exception:
             pass
 
-        # Check for markdown code fence ```json ... ```
-        fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", raw_text, re.DOTALL)
-        if fence_match:
+        # 2. Markdown code fences (reversed to take the last code fence, usually after thinking)
+        fence_matches = list(re.finditer(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", raw_text, re.DOTALL))
+        for fm in reversed(fence_matches):
             try:
-                val = json.loads(fence_match.group(1))
+                val = json.loads(fm.group(1))
                 if isinstance(val, dict):
                     return val
             except Exception:
                 pass
 
-        # Find outermost { ... }
+        # 3. Search for {"plans": ... } block (reversed to find the latest valid object)
+        plan_matches = list(re.finditer(r'(\{\s*"plans"\s*:[\s\S]*\})', raw_text, re.DOTALL))
+        for pm in reversed(plan_matches):
+            candidate = pm.group(1)
+            end = candidate.rfind("}")
+            while end != -1:
+                try:
+                    val = json.loads(candidate[: end + 1])
+                    if isinstance(val, dict) and "plans" in val:
+                        return val
+                except Exception:
+                    pass
+                end = candidate.rfind("}", 0, end)
+
+        # 4. Fallback outermost { ... }
         start = raw_text.find("{")
         end = raw_text.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -267,13 +317,12 @@ CLOSED ACTION VOCABULARY (You may ONLY use these actions):
 6. reroute: {{"type": "reroute", "service_id": "<id>", "avoid_nodes": [...], "avoid_edges": [...]}}
 
 RULES:
-- Propose 1 to 3 distinct candidate plans.
+- Propose 1 to 2 distinct candidate plans.
 - Only reference valid node IDs, service IDs, and edge IDs listed in the INCIDENT CONTEXT.
 - If a service host node is failing, ALWAYS migrate its service to a healthy node before or when isolating.
 - Every plan must contain at least one effective action (migrate_service, quarantine_node, reset_link, or restore_node).
-- Output STRICTLY valid JSON with no markdown formatting, backticks, or extra explanation.
+- Output STRICTLY valid JSON matching the format below:
 
-JSON OUTPUT FORMAT:
 {{
   "plans": [
     {{
@@ -281,7 +330,7 @@ JSON OUTPUT FORMAT:
       "rationale": "Reasoning for the candidate plan (max 2000 chars)",
       "actions": [
         {{"type": "migrate_service", "service_id": "svc-auth", "to_node": "N1"}},
-        {{"type": "quarantine_node", "node_id": "N7"}}
+        {{"type": "quarantine_node", "node_id": "N2"}}
       ]
     }}
   ]

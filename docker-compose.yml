@@ -15,7 +15,7 @@ services:
       AEGIS_NVIDIA_API_KEY: "${AEGIS_NVIDIA_API_KEY:-}"
       AEGIS_NVIDIA_MODEL: "${AEGIS_NVIDIA_MODEL:-nvidia/nemotron-3.5-lightning-30b-a3b}"
       AEGIS_OLLAMA_URL: "http://host.docker.internal:11434"
-      AEGIS_LLM_TIMEOUT: "35.0"
+      AEGIS_LLM_TIMEOUT: "${AEGIS_LLM_TIMEOUT:-45.0}"
     env_file:
       - .env
     extra_hosts:
