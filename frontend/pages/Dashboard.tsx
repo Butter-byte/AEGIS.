@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import type { NetworkState, StatePayload, Telemetry } from "../types/network";
+import type {
+  DiagnosisEventPayload,
+  ErrorEventPayload,
+  NetworkState,
+  RecoveryEventPayload,
+  RecoveryPhase,
+  RecoveryRunResult,
+  SafetyEventPayload,
+  SimulationEventPayload,
+  StatePayload,
+  Telemetry,
+  WSEnvelope,
+} from "../types/network";
 import { connectSocket } from "../services/socket";
-import { getTelemetry, injectFault } from "../services/api";
+import { getNetworkState, getTelemetry, injectFault, runRecovery } from "../services/api";
 import type { FaultType } from "../services/api";
 import NetworkGraph from "../components/NetworkGraph";
+import RecoveryPanel from "../components/RecoveryPanel";
 import EventLog from "../components/EventLog";
 import { ReactFlowProvider } from "@xyflow/react";
+
+const MAX_EVENTS = 100;
 
 // Fault controls in the panel. Every entry is a fault type the backend
 // FaultInjector actually supports (see backend/models/enums.py::FaultType).
@@ -23,42 +38,42 @@ function averageCpu(telemetry: Telemetry): number {
   return Math.round(nodes.reduce((sum, node) => sum + node.cpu, 0) / nodes.length);
 }
 
-function formatWebSocketEvent(message: any): string {
-  const payload = message.payload ?? {};
-
+// Turn a real backend WS event into a log line. Every string here is derived
+// from actual payload fields — nothing is fabricated.
+function formatWebSocketEvent(message: WSEnvelope): string {
   switch (message.type) {
-    case "fault":
-      return `Fault injected: ${payload.fault?.target ?? "unknown target"
-        }`;
-
-    case "recovery":
-      if (payload.stage === "started") {
-        return `Recovery started`;
-      }
-
-      if (payload.stage === "completed") {
-        return `Recovery completed`;
-      }
-
-      return `Recovery: ${payload.stage ?? "event"}`;
-
-    case "diagnosis":
-      return "Diagnosis completed";
-
-    case "simulation":
-      return "Recovery simulation evaluated";
-
-    case "safety":
-      return "Safety decision evaluated";
-
-    case "error":
-      return `System error: ${payload.message ?? "unknown error"
-        }`;
-
+    case "recovery": {
+      const p = message.payload as RecoveryEventPayload;
+      if (p.stage === "started") return "Recovery started";
+      if (p.stage === "completed") return `Recovery: ${p.result?.outcome ?? "completed"}`;
+      return "Recovery event";
+    }
+    case "diagnosis": {
+      const p = message.payload as DiagnosisEventPayload;
+      return `Diagnosis: ${p.diagnosis.summary} (${Math.round(p.diagnosis.confidence * 100)}%)`;
+    }
+    case "simulation": {
+      const p = message.payload as SimulationEventPayload;
+      return `Digital Twin: ${p.result.plan_id} ${p.result.feasible ? "feasible" : "infeasible"}`;
+    }
+    case "safety": {
+      const p = message.payload as SafetyEventPayload;
+      return `Safety: ${p.decision.plan_id} ${p.decision.approved ? "APPROVED" : "REJECTED"}`;
+    }
+    case "error": {
+      const p = message.payload as ErrorEventPayload;
+      return `System error: ${p.message ?? "unknown error"}`;
+    }
     default:
       return `System event: ${message.type}`;
   }
 }
+
+const PHASE_ON_EVENT: Partial<Record<WSEnvelope["type"], RecoveryPhase>> = {
+  diagnosis: "simulating",
+  simulation: "simulating",
+  safety: "evaluating",
+};
 
 function Dashboard() {
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
@@ -81,6 +96,17 @@ function Dashboard() {
   // Synchronous guard so a rapid double-click can't fire two POSTs before the
   // `faultInFlight` state re-render disables the buttons.
   const faultLock = useRef(false);
+
+  // Recovery UX state. The HTTP RecoveryRunResult is authoritative; `recoveryPhase`
+  // is a cosmetic live indicator driven by real WS events. `recoveryView` toggles
+  // the sidebar between NodeInspector and RecoveryPanel.
+  const [recoveryResult, setRecoveryResult] = useState<RecoveryRunResult | null>(null);
+  const [recoveryRunning, setRecoveryRunning] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryPhase, setRecoveryPhase] = useState<RecoveryPhase>("idle");
+  const [recoveryView, setRecoveryView] = useState(false);
+  const recoveryLock = useRef(false);
+  const recoveryRunningRef = useRef(false);
 
   // Telemetry is a pure projection of NetworkState, so re-fetch it whenever the
   // backend commits a new state version (fault / recovery / reset). The version
@@ -111,20 +137,26 @@ function Dashboard() {
       },
 
       onMessage: (message) => {
-        console.log("AEGIS WS MESSAGE:", message);
-
         if (message.type === "state") {
           const payload = message.payload as StatePayload;
           setNetworkState(payload.state);
+          if (recoveryRunningRef.current) setRecoveryPhase("executing");
           return;
         }
 
-        const event = formatWebSocketEvent(message);
+        // Cosmetic live progress only — never a source of truth for the result.
+        if (recoveryRunningRef.current) {
+          if (message.type === "recovery") {
+            const p = message.payload as RecoveryEventPayload;
+            if (p.stage === "started") setRecoveryPhase("diagnosing");
+          } else {
+            const next = PHASE_ON_EVENT[message.type];
+            if (next) setRecoveryPhase(next);
+          }
+        }
 
-        setEvents((currentEvents) => [
-          event,
-          ...currentEvents,
-        ]);
+        const event = formatWebSocketEvent(message);
+        setEvents((currentEvents) => [event, ...currentEvents].slice(0, MAX_EVENTS));
       },
 
       onClose: () => {
@@ -170,6 +202,45 @@ function Dashboard() {
     }
   };
 
+  const handleTriggerRecovery = async () => {
+    if (recoveryLock.current) return; // one recovery run at a time
+
+    recoveryLock.current = true;
+    recoveryRunningRef.current = true;
+    setRecoveryRunning(true);
+    setRecoveryError(null);
+    setRecoveryResult(null);
+    setRecoveryPhase("diagnosing");
+    setRecoveryView(true);
+
+    try {
+      const result = await runRecovery();
+      // The HTTP response is authoritative — the stepper/phase are discarded here.
+      setRecoveryResult(result);
+      setRecoveryPhase("done");
+
+      // Step 9 resync: only a backend "applied" outcome means state changed. The
+      // WS `state` frame usually already updated it; refetch as a safe fallback.
+      if (result.outcome === "applied") {
+        try {
+          setNetworkState(await getNetworkState());
+        } catch {
+          /* WS state stream will catch up */
+        }
+      }
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : "Recovery request failed");
+      setRecoveryPhase("idle");
+    } finally {
+      recoveryLock.current = false;
+      recoveryRunningRef.current = false;
+      setRecoveryRunning(false);
+    }
+  };
+
+  const showRecoveryPanel =
+    recoveryView && (recoveryRunning || recoveryResult !== null || recoveryError !== null);
+
   return (
     <div className="dashboard">
       {/* Header */}
@@ -208,7 +279,20 @@ function Dashboard() {
                   setSelectedNodeId(null);
                 }}
                 onIsolateSelected={() => runFault("kill_node", "node")}
+                onTriggerRecovery={handleTriggerRecovery}
+                recoveryRunning={recoveryRunning}
                 actionPending={faultInFlight !== null}
+                sidebar={
+                  showRecoveryPanel ? (
+                    <RecoveryPanel
+                      result={recoveryResult}
+                      phase={recoveryPhase}
+                      running={recoveryRunning}
+                      error={recoveryError}
+                      onClose={() => setRecoveryView(false)}
+                    />
+                  ) : undefined
+                }
               />
             </ReactFlowProvider>
           </div>

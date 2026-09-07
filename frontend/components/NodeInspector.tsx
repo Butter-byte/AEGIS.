@@ -1,17 +1,21 @@
-import { useState } from "react";
 import type { Node } from "@xyflow/react";
-import { runRecovery } from "../services/api";
 import type { NetworkNodeData } from "../types/network";
 
 type NodeInspectorProps = {
   node: Node<NetworkNodeData> | null;
   onIsolate: () => void;
+  onTriggerRecovery: () => void;
+  recoveryRunning: boolean;
   disabled?: boolean;
 };
 
-function NodeInspector({ node, onIsolate, disabled = false }: NodeInspectorProps) {
-  const [isRecovering, setIsRecovering] = useState(false);
-
+function NodeInspector({
+  node,
+  onIsolate,
+  onTriggerRecovery,
+  recoveryRunning,
+  disabled = false,
+}: NodeInspectorProps) {
   if (!node) {
     return (
       <div className="node-inspector empty">
@@ -22,18 +26,7 @@ function NodeInspector({ node, onIsolate, disabled = false }: NodeInspectorProps
 
   const data = node.data ?? {};
   const status = data.status ?? "healthy";
-
-  const handleRecovery = async () => {
-    setIsRecovering(true);
-
-    try {
-      await runRecovery();
-    } catch (error) {
-      console.error("Recovery request failed:", error);
-    } finally {
-      setIsRecovering(false);
-    }
-  };
+  const busy = disabled || recoveryRunning;
 
   return (
     <div className="node-inspector">
@@ -65,12 +58,12 @@ function NodeInspector({ node, onIsolate, disabled = false }: NodeInspectorProps
       </div>
 
       <div className="inspector-actions">
-        <button onClick={onIsolate} disabled={isRecovering || disabled}>
+        <button onClick={onIsolate} disabled={busy}>
           ISOLATE NODE
         </button>
 
-        <button onClick={handleRecovery} disabled={isRecovering || disabled}>
-          {isRecovering ? "RECOVERING..." : "TRIGGER RECOVERY"}
+        <button onClick={onTriggerRecovery} disabled={busy}>
+          {recoveryRunning ? "RECOVERING…" : "TRIGGER RECOVERY"}
         </button>
       </div>
     </div>

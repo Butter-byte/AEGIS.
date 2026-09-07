@@ -2,7 +2,7 @@ import NetworkNode from "./NetworkNode";
 import NodeInspector from "./NodeInspector";
 import type { EdgeStatus, NetworkNodeData, NetworkState } from "../types/network";
 import { useCallback, useEffect, useMemo } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import {
   ReactFlow,
   Background,
@@ -32,7 +32,11 @@ type NetworkGraphProps = {
   onSelectNode: (id: string) => void;
   onSelectEdge: (id: string) => void;
   onIsolateSelected: () => void;
+  onTriggerRecovery: () => void;
+  recoveryRunning: boolean;
   actionPending: boolean;
+  // When present, replaces the NodeInspector in the sidebar slot (recovery view).
+  sidebar?: ReactNode;
 };
 
 function NetworkGraph({
@@ -42,7 +46,10 @@ function NetworkGraph({
   onSelectNode,
   onSelectEdge,
   onIsolateSelected,
+  onTriggerRecovery,
+  recoveryRunning,
   actionPending,
+  sidebar,
 }: NetworkGraphProps) {
   const networkNodes = useMemo<Node<NetworkNodeData>[]>(() => {
     if (!networkState) return [];
@@ -130,11 +137,15 @@ function NetworkGraph({
         </ReactFlow>
       </div>
 
-      <NodeInspector
-        node={selectedNode}
-        onIsolate={onIsolateSelected}
-        disabled={actionPending}
-      />
+      {sidebar ?? (
+        <NodeInspector
+          node={selectedNode}
+          onIsolate={onIsolateSelected}
+          onTriggerRecovery={onTriggerRecovery}
+          recoveryRunning={recoveryRunning}
+          disabled={actionPending}
+        />
+      )}
     </div>
   );
 }
