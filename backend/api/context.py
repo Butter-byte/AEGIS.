@@ -21,7 +21,8 @@ from backend.state.manager import StateManager
 from backend.network.simulator import build_seed
 from backend.telemetry import TelemetryEngine
 from backend.faults import FaultInjector
-from backend.ai import HeuristicPlanner
+from backend.diagnosis import HeuristicDiagnoser
+from backend.recovery import RecoveryPlanner
 from backend.simulation.twin import DigitalTwin
 from backend.safety import SafetyEngine
 
@@ -54,7 +55,6 @@ class AppContext:
 
         faults = FaultInjector(state)
         telemetry = TelemetryEngine()
-        planner = HeuristicPlanner()
 
         pipeline = Pipeline(
             state=state,
@@ -62,8 +62,8 @@ class AppContext:
             publisher=broadcaster.publish,
             telemetry=telemetry,
             faults=faults,
-            diagnoser=planner,
-            planner=planner,
+            diagnoser=HeuristicDiagnoser(),
+            planner=RecoveryPlanner(),
             twin=DigitalTwin(),
             safety=SafetyEngine(),
         )
