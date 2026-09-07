@@ -3,7 +3,7 @@ from __future__ import annotations
 import networkx as nx
 
 from backend.models.common import utcnow
-from backend.models.enums import NodeStatus
+from backend.models.enums import EdgeStatus, NodeStatus
 from backend.models.recovery import RecoveryPlan
 from backend.models.simulation import SimDelta, SimMetrics, SimulationResult
 from backend.models.state import NetworkState
@@ -39,8 +39,20 @@ class DigitalTwin:
     def _metrics(self, state: NetworkState) -> SimMetrics:
         graph = to_graph(state)
         active = [node for node in state.nodes.values() if node.status not in {NodeStatus.failed, NodeStatus.quarantined}]
-        latencies = [node.latency_ms for node in active]
-        unreachable = [service.id for service in state.services.values() if service.host_node not in graph]
+        active_edges = [edge for edge in state.edges if edge.status != EdgeStatus.failed]
+        latencies = [node.latency_ms for node in active] + [edge.latency_ms for edge in active_edges]
+
+        unreachable: list[str] = []
+        for service in state.services.values():
+            if service.host_node not in graph:
+                unreachable.append(service.id)
+            elif "N1" in graph and not nx.has_path(graph, "N1", service.host_node):
+                unreachable.append(service.id)
+            elif service.path and len(service.path) > 1:
+                # If assigned route has a severed edge, service is unreachable until rerouted or link reset
+                if any(not graph.has_edge(u, v) for u, v in zip(service.path, service.path[1:])):
+                    unreachable.append(service.id)
+
         path_count = sum(1 for source in graph for target in graph if source < target and nx.has_path(graph, source, target))
         service_count = max(len(state.services), 1)
         availability = (service_count - len(unreachable)) / service_count

@@ -71,25 +71,28 @@ def build_seed() -> NetworkState:
             load = round(random.uniform(400.0, 800.0), 1)
             latency = round(random.uniform(3.5, 7.5), 1)
             cpu = round(random.uniform(25.0, 45.0), 1)
+            loss = round(random.uniform(0.08, 0.20), 2)
         elif node_id in _AGG_NODES:
             # Aggregation switches: medium capacity, balanced latency
             capacity = round(random.uniform(1100.0, 1600.0), 1)
             load = round(random.uniform(300.0, 600.0), 1)
             latency = round(random.uniform(7.0, 13.0), 1)
             cpu = round(random.uniform(28.0, 48.0), 1)
+            loss = round(random.uniform(0.12, 0.28), 2)
         else:
             # Edge compute / access nodes: standard capacity, higher latency
             capacity = round(random.uniform(750.0, 1100.0), 1)
             load = round(random.uniform(200.0, 450.0), 1)
             latency = round(random.uniform(11.0, 18.0), 1)
             cpu = round(random.uniform(20.0, 42.0), 1)
+            loss = round(random.uniform(0.16, 0.36), 2)
 
         nodes[node_id] = NodeState(
             id=node_id,
             status=NodeStatus.healthy,
             cpu_percent=cpu,
             latency_ms=latency,
-            packet_loss_percent=0.0,
+            packet_loss_percent=loss,
             capacity=capacity,
             load=load,
         )
@@ -105,6 +108,7 @@ def build_seed() -> NetworkState:
         bw = 20000.0 if is_backbone else 10000.0
         lat = round(random.uniform(2.0, 4.5), 1) if is_backbone else round(random.uniform(4.5, 8.5), 1)
         util = round(random.uniform(30.0, 55.0), 1) if is_backbone else round(random.uniform(25.0, 60.0), 1)
+        edge_loss = round(random.uniform(0.04, 0.12), 2) if is_backbone else round(random.uniform(0.08, 0.22), 2)
 
         edges.append(
             EdgeState(
@@ -113,7 +117,7 @@ def build_seed() -> NetworkState:
                 target=s_max,
                 bandwidth_mbps=bw,
                 latency_ms=lat,
-                packet_loss_percent=0.0,
+                packet_loss_percent=edge_loss,
                 utilization_percent=util,
                 status=EdgeStatus.active,
             )
@@ -158,46 +162,84 @@ def build_seed() -> NetworkState:
 
 
 def drift_network_resources(state: NetworkState) -> list[Mutation]:
-    """Generate subtle realistic perturbations simulating dynamic operational traffic.
+    """Generate realistic perturbations simulating dynamic operational traffic.
 
     Safe & bounded: does not transition node health statuses; failed/quarantined nodes
     stay inactive, while healthy nodes fluctuate within realistic operating bands.
+    Includes systemic traffic waves and load-correlated non-zero packet loss.
     """
     mutations: list[Mutation] = []
+
+    # Network-wide systemic traffic pulse (macro trend), so the entire topology
+    # experiences coordinated ebbs and flows rather than averaging out to zero.
+    wave_cpu = round(random.uniform(-1.8, 1.8), 1)
+    wave_lat = round(random.uniform(-0.4, 0.4), 1)
+    wave_load = round(random.uniform(-12.0, 12.0), 1)
 
     for node in state.nodes.values():
         if node.status in {NodeStatus.failed, NodeStatus.quarantined}:
             continue
 
-        # Subtle drift
-        delta_cpu = round(random.uniform(-2.5, 2.5), 1)
-        new_cpu = round(max(15.0, min(70.0, node.cpu_percent + delta_cpu)), 1)
+        # Local jitter added to macro wave
+        local_cpu = round(random.uniform(-1.8, 1.8), 1)
+        new_cpu = round(max(15.0, min(75.0, node.cpu_percent + wave_cpu + local_cpu)), 1)
 
-        delta_lat = round(random.uniform(-0.6, 0.6), 1)
-        new_lat = round(max(2.0, min(35.0, node.latency_ms + delta_lat)), 1)
+        local_lat = round(random.uniform(-0.5, 0.5), 1)
+        new_lat = round(max(2.5, min(35.0, node.latency_ms + wave_lat + local_lat)), 1)
 
-        delta_load = round(random.uniform(-18.0, 18.0), 1)
-        new_load = round(max(50.0, min(node.capacity * 0.85, node.load + delta_load)), 1)
+        local_load = round(random.uniform(-14.0, 14.0), 1)
+        new_load = round(max(50.0, min(node.capacity * 0.85, node.load + wave_load + local_load)), 1)
+
+        # Dynamic packet loss tied directly to node load ratio and CPU utilization
+        load_ratio = new_load / max(node.capacity, 1.0)
+        base_loss = 0.12 + (load_ratio ** 2 * 0.7) + ((new_cpu / 100.0) * 0.3)
+        loss_jitter = random.uniform(-0.06, 0.06)
+        new_loss = round(max(0.05, min(1.8, base_loss + loss_jitter)), 2)
 
         if (
             new_cpu != node.cpu_percent
             or new_lat != node.latency_ms
             or new_load != node.load
+            or new_loss != node.packet_loss_percent
         ):
-            mutations.append(set_node(node.id, cpu_percent=new_cpu, latency_ms=new_lat, load=new_load))
+            mutations.append(
+                set_node(
+                    node.id,
+                    cpu_percent=new_cpu,
+                    latency_ms=new_lat,
+                    load=new_load,
+                    packet_loss_percent=new_loss,
+                )
+            )
 
     for edge in state.edges:
         if edge.status == EdgeStatus.failed:
             continue
 
-        delta_util = round(random.uniform(-2.0, 2.0), 1)
-        new_util = round(max(15.0, min(80.0, edge.utilization_percent + delta_util)), 1)
+        local_util = round(random.uniform(-1.5, 1.5), 1)
+        new_util = round(max(15.0, min(80.0, edge.utilization_percent + (wave_cpu * 0.8) + local_util)), 1)
 
-        delta_lat = round(random.uniform(-0.3, 0.3), 1)
-        new_lat = round(max(1.5, min(25.0, edge.latency_ms + delta_lat)), 1)
+        local_edge_lat = round(random.uniform(-0.3, 0.3), 1)
+        new_lat = round(max(1.5, min(25.0, edge.latency_ms + (wave_lat * 0.5) + local_edge_lat)), 1)
 
-        if new_util != edge.utilization_percent or new_lat != edge.latency_ms:
-            mutations.append(set_edge(edge.id, utilization_percent=new_util, latency_ms=new_lat))
+        # Edge packet loss correlated with link utilization
+        util_ratio = new_util / 100.0
+        base_edge_loss = 0.08 + (util_ratio ** 2 * 0.5) + random.uniform(-0.04, 0.04)
+        new_edge_loss = round(max(0.02, min(1.5, base_edge_loss)), 2)
+
+        if (
+            new_util != edge.utilization_percent
+            or new_lat != edge.latency_ms
+            or new_edge_loss != edge.packet_loss_percent
+        ):
+            mutations.append(
+                set_edge(
+                    edge.id,
+                    utilization_percent=new_util,
+                    latency_ms=new_lat,
+                    packet_loss_percent=new_edge_loss,
+                )
+            )
 
     return mutations
 
@@ -279,12 +321,29 @@ def apply_action(state: NetworkState, action: RecoveryAction) -> NetworkState:
             if edge.id in incident_edges[action.node_id]:
                 edge.status = EdgeStatus.active
     elif isinstance(action, ResetLinkAction):
-        next(edge for edge in simulated.edges if edge.id == action.edge_id).status = EdgeStatus.active
+        for edge in simulated.edges:
+            if edge.id == action.edge_id:
+                edge.status = EdgeStatus.active
+                edge.packet_loss_percent = 0.08
+                edge.latency_ms = 4.0
+                edge.utilization_percent = 35.0
     elif isinstance(action, MigrateServiceAction):
         simulated.services[action.service_id].host_node = action.to_node
+        new_path = shortest_path(simulated, "N1", action.to_node)
+        if new_path:
+            simulated.services[action.service_id].path = new_path
     elif isinstance(action, RerouteAction):
-        # Rerouting is represented by path selection, not a live-state mutation.
-        pass
+        svc = simulated.services.get(action.service_id)
+        if svc:
+            new_path = shortest_path(
+                simulated,
+                "N1",
+                svc.host_node,
+                avoid_edges=action.avoid_edges,
+                avoid_nodes=action.avoid_nodes,
+            )
+            if new_path:
+                svc.path = new_path
 
     simulated.updated_at = utcnow()
     return simulated

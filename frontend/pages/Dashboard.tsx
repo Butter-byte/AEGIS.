@@ -440,7 +440,7 @@ function Dashboard() {
             </div>
             <div>
               <span>LATENCY</span>
-              <strong>{telemetryError ? "—" : (telemetry ? `${Math.round(telemetry.avg_latency)} ms` : "…")}</strong>
+              <strong>{telemetryError ? "—" : (telemetry ? `${telemetry.avg_latency.toFixed(1)} ms` : "…")}</strong>
             </div>
             <div>
               <span>PACKET LOSS</span>
