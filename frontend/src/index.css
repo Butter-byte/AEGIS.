@@ -1103,53 +1103,6 @@ button {
   line-height: 1.5;
 }
 
-/* candidate cards */
-.rp-cand {
-  border: 1px solid #252d36;
-  border-radius: 5px;
-  padding: 10px;
-  margin-top: 8px;
-}
-
-.rp-cand-applied {
-  border-color: #2d6a4f;
-  background: #0e1712;
-}
-
-.rp-cand-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.rp-cand-title {
-  font-size: 11px;
-  color: #e6edf3;
-  letter-spacing: 0.3px;
-}
-
-.rp-cand-tags {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.rp-cand-tags .rp-tag {
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-size: 7px;
-  letter-spacing: 0.7px;
-  border: 1px solid;
-}
-
-.rp-cand-rationale {
-  margin: 6px 0 10px;
-  color: #8b98a5;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
 .rp-actions {
   list-style: none;
   margin: 0 0 10px;
@@ -1214,6 +1167,13 @@ button {
   line-height: 1.5;
 }
 
+.rp-reason-detail {
+  margin-top: 4px;
+  color: #9da8b3;
+  font-family: monospace;
+  font-size: 9px;
+}
+
 .rp-violations {
   list-style: none;
   margin: 0;
@@ -1259,49 +1219,380 @@ button {
   font-family: monospace;
 }
 
-/* outcome */
-.rp-outcome {
-  padding: 12px;
-  border-radius: 5px;
-  border: 1px solid #303944;
+/* ---------- AI RECOVERY ANALYSIS ---------- */
+
+.ra-header {
+  margin-bottom: 6px;
 }
 
-.rp-outcome-ok {
+.ra-title {
+  font-size: 12px;
+  letter-spacing: 1.4px;
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.ra-sub {
+  margin-top: 3px;
+  font-size: 8.5px;
+  letter-spacing: 0.3px;
+  color: #697582;
+}
+
+/* funnel counters: considered -> passed twin -> safety ok -> selected */
+.ra-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.ra-stats div {
+  padding: 7px 3px;
+  background: #171e27;
+  border: 1px solid #252d36;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.ra-stats strong {
+  display: block;
+  font-family: monospace;
+  font-size: 16px;
+  line-height: 1;
+  color: #e6edf3;
+}
+
+.ra-stats span {
+  display: block;
+  margin-top: 4px;
+  font-size: 6.5px;
+  letter-spacing: 0.4px;
+  color: #697582;
+}
+
+.ra-stat-sel {
+  border-color: #2d6a4f;
+}
+
+.ra-stat-sel strong {
+  color: #3fb950;
+}
+
+/* compact evaluation funnel */
+.ra-strip {
+  margin: 10px 0;
+  padding: 10px;
+  background: #0d1117;
+  border: 1px solid #252d36;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.ra-strip-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ra-strip-cap {
+  font-size: 7px;
+  letter-spacing: 1.2px;
+  color: #697582;
+}
+
+.ra-strip-cap-ok {
+  color: #3fb950;
+}
+
+.ra-strip-legend {
+  font-size: 6.5px;
+  letter-spacing: 0.5px;
+  color: #4a5560;
+}
+
+.ra-strip-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.ra-strip-cell {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px;
+  border: 1px solid #303944;
+  border-radius: 3px;
+  background: #171e27;
+  font-family: monospace;
+  font-size: 9px;
+}
+
+.ra-strip-n {
+  color: #8b98a5;
+}
+
+.ra-strip-g {
+  color: #8b98a5;
+}
+
+.ra-cell-selected {
   border-color: #2d6a4f;
   background: #0e1712;
 }
 
-.rp-outcome-bad {
+.ra-cell-rejected,
+.ra-cell-infeasible {
+  border-color: #5c2b2b;
+  background: #1a1214;
+}
+
+.ra-strip-arrow {
+  margin: 4px 0;
+  color: #3a4553;
+  font-size: 10px;
+}
+
+.ra-strip-sel {
+  font-size: 10px;
+  font-weight: 600;
+  color: #3fb950;
+}
+
+.ra-strip-none {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: #f85149;
+}
+
+/* per-candidate evaluation card */
+.ra-cands {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ra-cand {
+  padding: 10px;
+  border: 1px solid #252d36;
+  border-left: 2px solid #303944;
+  border-radius: 4px;
+}
+
+.ra-cand-selected {
+  border-color: #2d6a4f;
+  border-left-color: #3fb950;
+  background: #0e1712;
+}
+
+.ra-cand-rejected,
+.ra-cand-infeasible {
+  border-left-color: #f85149;
+}
+
+.ra-cand-safe {
+  border-left-color: #8b98a5;
+}
+
+.ra-cand-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ra-cand-n {
+  font-family: monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #697582;
+}
+
+.ra-cand-head .rp-tag {
+  padding: 2px 5px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 7px;
+  letter-spacing: 0.7px;
+}
+
+.ra-cand-title {
+  margin-top: 5px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  color: #e6edf3;
+}
+
+.ra-cand-rationale {
+  margin: 5px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #8b98a5;
+}
+
+.ra-flow {
+  margin-top: 8px;
+}
+
+.ra-flow .rp-sub {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.ra-step-head {
+  margin-bottom: 6px;
+  font-size: 8px;
+  letter-spacing: 1.2px;
+  color: #697582;
+}
+
+.ra-step .rp-actions {
+  margin-bottom: 0;
+}
+
+.ra-arrow {
+  margin: 5px 0;
+  text-align: center;
+  color: #3a4553;
+  font-size: 11px;
+}
+
+.ra-verdict {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #303944;
+  border-radius: 4px;
+  background: #171e27;
+}
+
+.ra-verdict-ok {
+  border-color: #2d6a4f;
+  background: #0e1712;
+}
+
+.ra-verdict-bad {
+  border-color: #5c2b2b;
+  background: #1a1214;
+}
+
+.ra-verdict-tag {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: #e6edf3;
+}
+
+.ra-verdict-ok .ra-verdict-tag {
+  color: #3fb950;
+}
+
+.ra-verdict-bad .ra-verdict-tag {
+  color: #f85149;
+}
+
+.ra-verdict-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: #8b98a5;
+}
+
+/* final decision summary */
+.ra-decision {
+  padding: 12px;
+  border: 1px solid #303944;
+  border-radius: 5px;
+}
+
+.ra-decision-ok {
+  border-color: #2d6a4f;
+  background: #0e1712;
+}
+
+.ra-decision-bad {
   border-color: #b62324;
   background: #1c1214;
 }
 
-.rp-outcome-warn {
+.ra-decision-warn {
   border-color: #9a6700;
   background: #1b1710;
 }
 
-.rp-outcome-neutral {
-  border-color: #303944;
+.ra-decision-head {
+  margin-bottom: 6px;
+  font-size: 8px;
+  letter-spacing: 1.6px;
+  color: #697582;
 }
 
-.rp-outcome-label {
-  font-size: 13px;
+.ra-decision-label {
+  font-size: 14px;
   letter-spacing: 1px;
   color: #e6edf3;
 }
 
-.rp-outcome-msg {
-  margin: 6px 0 0;
-  color: #9da8b3;
-  font-size: 10px;
+.ra-decision-ok .ra-decision-label {
+  color: #3fb950;
 }
 
-.rp-outcome-detail {
-  margin: 4px 0 0;
-  color: #8b98a5;
-  font-size: 10px;
+.ra-decision-bad .ra-decision-label {
+  color: #f85149;
+}
+
+.ra-decision-plan {
+  margin-top: 8px;
+}
+
+.ra-decision-plan span {
+  display: block;
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: #697582;
+}
+
+.ra-decision-plan strong {
+  font-size: 11px;
+  color: #e6edf3;
+}
+
+.ra-decision-rows {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ra-decision-rows div {
+  display: flex;
+  justify-content: space-between;
   font-family: monospace;
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: #8b98a5;
+}
+
+.ra-ok {
+  color: #3fb950;
+}
+
+.ra-decision-ver {
+  margin-top: 8px;
+  font-family: monospace;
+  font-size: 9px;
+  color: #697582;
+}
+
+.ra-decision-msg {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: #9da8b3;
 }
 
 /* ---------- AI EXPLANATION BLOCK ---------- */

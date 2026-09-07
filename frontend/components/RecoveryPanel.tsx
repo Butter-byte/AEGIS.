@@ -128,7 +128,21 @@ function TwinBlock({ sim }: { sim: SimulationResult }) {
           </div>
         </div>
       ) : (
-        <p className="rp-reason">{sim.infeasible_reason ?? "Simulation infeasible."}</p>
+        <>
+          <p className="rp-reason">
+            ✕ Simulation failed — this strategy did not produce a viable network state.
+          </p>
+          {sim.infeasible_reason && (
+            <p className="rp-reason rp-reason-detail">{sim.infeasible_reason}</p>
+          )}
+          {sim.errors.length > 0 && (
+            <ul className="rp-actions">
+              {sim.errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
@@ -159,51 +173,250 @@ function SafetyBlock({ candidate }: { candidate: CandidateResult }) {
   );
 }
 
-function CandidateCard({ candidate, applied }: { candidate: CandidateResult; applied: boolean }) {
-  const p = candidate.plan;
+// --- AI Recovery Analysis --------------------------------------------------
+// Every value below is derived from authoritative backend fields only:
+// candidate.simulation.feasible, candidate.safety.approved, result.applied_plan_id.
+// The frontend never re-ranks candidates or recomputes "best".
+
+type CandidateVerdict = "selected" | "safe" | "rejected" | "infeasible";
+
+function candidateVerdict(c: CandidateResult, result: RecoveryRunResult): CandidateVerdict {
+  if (result.applied_plan_id !== null && c.plan.id === result.applied_plan_id) return "selected";
+  if (!c.simulation.feasible) return "infeasible";
+  if (!c.safety.approved) return "rejected";
+  return "safe"; // simulation-feasible AND safety-approved, but not the plan AEGIS executed
+}
+
+const VERDICT_META: Record<
+  CandidateVerdict,
+  { tag: string; note: string; kind: "ok" | "bad" | "neutral" }
+> = {
+  selected: {
+    tag: "★ SELECTED — BEST SAFE PLAN",
+    note: "Applied to the live network — the only plan AEGIS executed.",
+    kind: "ok",
+  },
+  safe: {
+    tag: "PASSED — NOT SELECTED",
+    note: "Simulation-feasible and safety-approved, but not the plan AEGIS selected to execute.",
+    kind: "neutral",
+  },
+  rejected: {
+    tag: "SIMULATION PASSED · SAFETY REJECTED",
+    note: "Not eligible for execution.",
+    kind: "bad",
+  },
+  infeasible: {
+    tag: "SIMULATION FAILED",
+    note: "Did not produce a viable network state. Not eligible for execution.",
+    kind: "bad",
+  },
+};
+
+function analysisStats(candidates: CandidateResult[], appliedId: string | null) {
+  return {
+    considered: candidates.length,
+    passedTwin: candidates.filter((c) => c.simulation.feasible).length,
+    safetyApproved: candidates.filter((c) => c.simulation.feasible && c.safety.approved).length,
+    selected: appliedId !== null ? 1 : 0,
+  };
+}
+
+// Compact funnel: proposals -> twin/safety glyphs -> selection / no-safe-plan.
+function EvalStrip({ result }: { result: RecoveryRunResult }) {
+  const cands = result.candidates;
+  const selected = cands.find((c) => candidateVerdict(c, result) === "selected");
+
   return (
-    <article className={`rp-cand ${applied ? "rp-cand-applied" : ""}`}>
-      <div className="rp-cand-head">
-        <div className="rp-cand-title">{p.strategy_label}</div>
-        <div className="rp-cand-tags">
-          <span className="rp-tag rp-neutral">{p.source}</span>
-          {applied && <span className="rp-tag rp-ok">APPLIED</span>}
+    <div className="ra-strip">
+      <div className="ra-strip-row">
+        <span className="ra-strip-cap">AI PROPOSALS</span>
+        <span className="ra-strip-legend">TWIN · SAFETY</span>
+      </div>
+      <div className="ra-strip-cells">
+        {cands.map((c, i) => {
+          const v = candidateVerdict(c, result);
+          return (
+            <div key={c.plan.id} className={`ra-strip-cell ra-cell-${v}`} title={c.plan.strategy_label}>
+              <span className="ra-strip-n">S{i + 1}</span>
+              <span className="ra-strip-g">{c.simulation.feasible ? "✓" : "✕"}</span>
+              <span className="ra-strip-g">{c.safety.approved ? "✓" : "✕"}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="ra-strip-arrow">↓</div>
+      <span className="ra-strip-cap">SAFETY GATE</span>
+      <div className="ra-strip-arrow">↓</div>
+      {selected ? (
+        <>
+          <div className="ra-strip-sel">★ {selected.plan.strategy_label}</div>
+          <div className="ra-strip-arrow">↓</div>
+          <span className="ra-strip-cap ra-strip-cap-ok">EXECUTOR ✓ APPLIED</span>
+        </>
+      ) : (
+        <div className="ra-strip-none">NO SAFE PLAN — nothing executed</div>
+      )}
+    </div>
+  );
+}
+
+function AnalysisCandidate({
+  candidate,
+  index,
+  result,
+}: {
+  candidate: CandidateResult;
+  index: number;
+  result: RecoveryRunResult;
+}) {
+  const verdict = candidateVerdict(candidate, result);
+  const meta = VERDICT_META[verdict];
+  const p = candidate.plan;
+
+  return (
+    <article className={`ra-cand ra-cand-${verdict}`}>
+      <div className="ra-cand-head">
+        <span className="ra-cand-n">STRATEGY {index + 1}</span>
+        <span className={`rp-tag ${p.source === "llm" ? "rp-ai" : "rp-neutral"}`}>
+          {p.source === "llm" ? "AI" : "HEURISTIC"}
+        </span>
+      </div>
+      <div className="ra-cand-title">{p.strategy_label}</div>
+      {p.rationale && <p className="ra-cand-rationale">{p.rationale}</p>}
+
+      <div className="ra-flow">
+        <div className="ra-step">
+          <div className="ra-step-head">PROPOSAL</div>
+          <ul className="rp-actions">
+            {p.actions.map((a, i) => (
+              <li key={`${a.type}-${i}`}>{actionText(a)}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="ra-arrow">↓</div>
+        <TwinBlock sim={candidate.simulation} />
+        <div className="ra-arrow">↓</div>
+        <SafetyBlock candidate={candidate} />
+        <div className="ra-arrow">↓</div>
+        <div className={`ra-verdict ra-verdict-${meta.kind}`}>
+          <span className="ra-verdict-tag">{meta.tag}</span>
+          <span className="ra-verdict-note">{meta.note}</span>
         </div>
       </div>
-      <p className="rp-cand-rationale">{p.rationale}</p>
-
-      <div className="rp-sub-head">ACTIONS</div>
-      <ul className="rp-actions">
-        {p.actions.map((a, i) => (
-          <li key={`${a.type}-${i}`}>{actionText(a)}</li>
-        ))}
-      </ul>
-
-      <TwinBlock sim={candidate.simulation} />
-      <SafetyBlock candidate={candidate} />
     </article>
   );
 }
 
-function OutcomeBlock({ result }: { result: RecoveryRunResult }) {
-  const meta = OUTCOME_META[result.outcome] ?? { label: result.outcome.toUpperCase(), kind: "bad" };
-  const applied = result.outcome === "applied";
-  // `no_plan` on a healthy network means "nothing to do" — the backend's raw
-  // message ("no schema-valid candidate plans") reads like a failure, so show
-  // its own diagnosis summary instead. Still authoritative backend text.
-  const message =
-    result.outcome === "no_plan" && result.diagnosis
-      ? result.diagnosis.summary
-      : result.message;
+function RecoveryAnalysis({ result }: { result: RecoveryRunResult }) {
+  const stats = analysisStats(result.candidates, result.applied_plan_id);
 
   return (
-    <section className={`rp-outcome rp-outcome-${meta.kind}`}>
-      <div className="rp-outcome-label">{meta.label}</div>
-      <p className="rp-outcome-msg">{message}</p>
-      {applied && result.resulting_version !== null && (
-        <p className="rp-outcome-detail">Network state version: {result.resulting_version}</p>
+    <section className="rp-block ra">
+      <div className="ra-header">
+        <div className="ra-title">AI RECOVERY ANALYSIS</div>
+        <div className="ra-sub">Multiple recovery strategies evaluated before execution</div>
+      </div>
+
+      {result.candidates.length === 0 ? (
+        <p className="rp-reason">
+          No recovery strategies were generated — {result.diagnosis?.summary ?? "no actionable fault detected"}.
+        </p>
+      ) : (
+        <>
+          <div className="ra-stats">
+            <div>
+              <strong>{stats.considered}</strong>
+              <span>CONSIDERED</span>
+            </div>
+            <div>
+              <strong>{stats.passedTwin}</strong>
+              <span>PASSED TWIN</span>
+            </div>
+            <div>
+              <strong>{stats.safetyApproved}</strong>
+              <span>SAFETY OK</span>
+            </div>
+            <div className={stats.selected ? "ra-stat-sel" : "ra-stat-none"}>
+              <strong>{stats.selected}</strong>
+              <span>SELECTED</span>
+            </div>
+          </div>
+
+          <EvalStrip result={result} />
+
+          <div className="ra-cands">
+            {result.candidates.map((c, i) => (
+              <AnalysisCandidate key={c.plan.id} candidate={c} index={i} result={result} />
+            ))}
+          </div>
+        </>
       )}
-      {!applied && <p className="rp-outcome-detail">Network unchanged.</p>}
+    </section>
+  );
+}
+
+function AegisDecision({ result }: { result: RecoveryRunResult }) {
+  const meta = OUTCOME_META[result.outcome] ?? { label: result.outcome.toUpperCase(), kind: "bad" as const };
+  const selected = result.candidates.find(
+    (c) => result.applied_plan_id !== null && c.plan.id === result.applied_plan_id,
+  );
+
+  return (
+    <section className={`ra-decision ra-decision-${meta.kind}`}>
+      <div className="ra-decision-head">AEGIS DECISION</div>
+      <div className="ra-decision-label">{meta.label}</div>
+
+      {result.outcome === "applied" && selected && (
+        <>
+          <div className="ra-decision-plan">
+            <span>PLAN SELECTED</span>
+            <strong>{selected.plan.strategy_label}</strong>
+          </div>
+          <div className="ra-decision-rows">
+            <div>
+              <span>DIGITAL TWIN</span>
+              <span className="ra-ok">✓ PASSED</span>
+            </div>
+            <div>
+              <span>SAFETY GATE</span>
+              <span className="ra-ok">✓ APPROVED</span>
+            </div>
+            <div>
+              <span>EXECUTOR</span>
+              <span className="ra-ok">✓ APPLIED</span>
+            </div>
+          </div>
+          {result.resulting_version !== null && (
+            <div className="ra-decision-ver">Network state version: v{result.resulting_version}</div>
+          )}
+        </>
+      )}
+
+      {result.outcome === "no_safe_plan" && (
+        <p className="ra-decision-msg">
+          {result.candidates.length} recovery{" "}
+          {result.candidates.length === 1 ? "strategy was" : "strategies were"} evaluated, but none
+          passed the required safety conditions. The network was left unchanged.
+        </p>
+      )}
+
+      {result.outcome === "no_plan" && (
+        <p className="ra-decision-msg">
+          The network is within all thresholds. No recovery was required and nothing was changed.
+        </p>
+      )}
+
+      {(result.outcome === "error" || result.outcome === "diagnosis_failed") && (
+        <p className="ra-decision-msg">{result.message} The network was not modified.</p>
+      )}
+
+      {result.outcome === "approved_pending" && (
+        <p className="ra-decision-msg">
+          A plan passed the Digital Twin and Safety Gate, but auto-apply is disabled so it was not
+          executed. The network is unchanged.
+        </p>
+      )}
     </section>
   );
 }
@@ -402,25 +615,9 @@ function RecoveryPanel({ result, phase, running, error, onClose }: RecoveryPanel
             </section>
           )}
 
-          <section className="rp-block">
-            <div className="rp-block-head">
-              CANDIDATE RECOVERY PLANS
-              <span className="rp-count">{result.candidates.length}</span>
-            </div>
-            {result.candidates.length === 0 ? (
-              <p className="rp-reason">No candidate plans were generated.</p>
-            ) : (
-              result.candidates.map((c) => (
-                <CandidateCard
-                  key={c.plan.id}
-                  candidate={c}
-                  applied={result.applied_plan_id !== null && c.plan.id === result.applied_plan_id}
-                />
-              ))
-            )}
-          </section>
+          <RecoveryAnalysis result={result} />
 
-          <OutcomeBlock result={result} />
+          <AegisDecision result={result} />
 
           {/* --- AI Explanation: plain-English summary --- */}
           <AIExplanationBlock result={result} />
