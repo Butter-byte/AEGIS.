@@ -1,6 +1,6 @@
 import type { WSEnvelope } from "../types/network";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
+const WS_URL = "ws://localhost:8000/ws";
 const RECONNECT_DELAY_MS = 2000;
 
 export type SocketHandlers = {
@@ -16,6 +16,7 @@ export function connectSocket(handlers: SocketHandlers) {
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
   const open = () => {
+    console.log("AEGIS: opening websocket", WS_URL)
     socket = new WebSocket(WS_URL);
 
     socket.onopen = () => {
@@ -37,8 +38,7 @@ export function connectSocket(handlers: SocketHandlers) {
 
     socket.onclose = () => {
       handlers.onClose?.();
-      // Reconnect on an unexpected drop; stop once the client closed on purpose
-      // (component unmount). One socket at a time — `open` reassigns `socket`.
+
       if (!closedByClient) {
         reconnectTimer = setTimeout(open, RECONNECT_DELAY_MS);
       }
@@ -50,8 +50,20 @@ export function connectSocket(handlers: SocketHandlers) {
   return {
     close: () => {
       closedByClient = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      socket?.close();
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+
+      if (socket) {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.onopen = () => {
+            socket?.close();
+          };
+        } else if (socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        }
+      }
     },
   };
 }
