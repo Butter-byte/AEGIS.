@@ -1,11 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-
-type NetworkNodeData = {
-  label: string;
-  status?: "healthy" | "degraded" | "failed";
-  cpu?: number;
-  latency?: number;
-};
+import type { NetworkNodeData } from "../types/network";
 
 function NetworkNode({ data }: NodeProps) {
   const nodeData = data as NetworkNodeData;

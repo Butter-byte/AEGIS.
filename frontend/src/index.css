@@ -97,6 +97,10 @@ button {
   color: #3fb950;
 }
 
+.panel-header span.error {
+  color: #f85149;
+}
+
 /* ---------- NETWORK ---------- */
 
 .network-graph {
@@ -149,8 +153,29 @@ button {
   cursor: pointer;
 }
 
-.fault-buttons button:hover {
+.fault-buttons button:hover:not(:disabled) {
   border-color: #8b949e;
+}
+
+.fault-buttons button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fault-status {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #3fb950;
+}
+
+.fault-status.error {
+  color: #f85149;
+}
+
+.fault-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #697582;
 }
 
 /* ---------- EVENT LOG ---------- */
@@ -187,6 +212,10 @@ button {
 
 .network-node.failed {
   border-color: #b62324;
+}
+
+.network-node.quarantined {
+  border-color: #3d5a80;
 }
 
 .node-header {

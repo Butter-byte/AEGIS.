@@ -1,4 +1,16 @@
+import type { Telemetry } from "../types/network";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+export async function getTelemetry(): Promise<Telemetry> {
+    const response = await fetch(`${API_URL}/telemetry`);
+
+    if (!response.ok) {
+        throw new Error(`Telemetry request failed: ${response.status}`);
+    }
+
+    return (await response.json()) as Telemetry;
+}
 
 export type FaultType =
     | "kill_node"

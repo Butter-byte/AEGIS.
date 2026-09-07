@@ -1,12 +1,13 @@
-export type NodeStatus = "healthy" | "degraded" | "failed";
+// Mirrors backend/models/enums.py.
+export type NodeStatus = "healthy" | "degraded" | "failed" | "quarantined";
 
-export type EdgeStatus = string;
+export type EdgeStatus = "active" | "congested" | "failed";
 
 export type ServiceStatus = string;
 
 export type NetworkNodeData = {
   label: string;
-  status?: "healthy" | "degraded" | "failed";
+  status?: NodeStatus;
   cpu?: number;
   latency?: number;
 };
@@ -68,4 +69,28 @@ export type WSEnvelope<T = unknown> = {
 
 export type StatePayload = {
   state: NetworkState;
+};
+
+// --- GET /telemetry (backend TelemetryEngine.derive) ---
+
+export type NodeTelemetry = {
+  cpu: number; // percent 0–100
+  latency: number; // ms
+  packet_loss: number; // ratio 0.0–1.0
+  status: string; // NodeStatus enum ("healthy" | "degraded" | "failed" | "quarantined")
+};
+
+export type Telemetry = {
+  at: string; // ISO-8601 UTC
+  based_on_version: number;
+  network_availability: number; // ratio 0.0–1.0
+  avg_latency: number; // ms
+  max_latency: number; // ms
+  total_packet_loss: number; // ratio 0.0–1.0
+  active_nodes: number;
+  failed_nodes: number;
+  quarantined_nodes: number;
+  congested_edges: number;
+  failed_edges: number;
+  per_node: Record<string, NodeTelemetry>;
 };

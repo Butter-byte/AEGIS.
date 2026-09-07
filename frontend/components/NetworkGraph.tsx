@@ -1,8 +1,7 @@
 import NetworkNode from "./NetworkNode";
 import NodeInspector from "./NodeInspector";
-import type { NetworkNodeData, NetworkState } from "../types/network";
-import { injectFault } from "../services/api";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { EdgeStatus, NetworkNodeData, NetworkState } from "../types/network";
+import { useCallback, useEffect, useMemo } from "react";
 import type { MouseEvent } from "react";
 import {
   ReactFlow,
@@ -18,14 +17,33 @@ const nodeTypes = {
   network: NetworkNode,
 };
 
-type NetworkGraphProps = {
-  networkState: NetworkState | null;
-  onEvent: (event: string) => void;
+// Edge appearance derived purely from the backend EdgeStatus. A selected edge is
+// overpainted with a bright stroke so selection stays visible regardless of status.
+const EDGE_VISUALS: Record<EdgeStatus, { stroke: string; width: number; dash?: string; animated?: boolean }> = {
+  active: { stroke: "#3a4553", width: 1 },
+  congested: { stroke: "#d29922", width: 2, animated: true },
+  failed: { stroke: "#f85149", width: 2, dash: "6 4" },
 };
 
-function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+type NetworkGraphProps = {
+  networkState: NetworkState | null;
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+  onSelectNode: (id: string) => void;
+  onSelectEdge: (id: string) => void;
+  onIsolateSelected: () => void;
+  actionPending: boolean;
+};
 
+function NetworkGraph({
+  networkState,
+  selectedNodeId,
+  selectedEdgeId,
+  onSelectNode,
+  onSelectEdge,
+  onIsolateSelected,
+  actionPending,
+}: NetworkGraphProps) {
   const networkNodes = useMemo<Node<NetworkNodeData>[]>(() => {
     if (!networkState) return [];
 
@@ -36,6 +54,7 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
         y: 80 + Math.floor(index / 3) * 170,
       },
       type: "network",
+      selected: node.id === selectedNodeId,
       data: {
         label: node.id,
         status: node.status,
@@ -43,17 +62,28 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
         latency: node.latency_ms,
       },
     }));
-  }, [networkState]);
+  }, [networkState, selectedNodeId]);
 
   const networkEdges = useMemo<Edge[]>(() => {
     if (!networkState) return [];
 
-    return networkState.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-    }));
-  }, [networkState]);
+    return networkState.edges.map((edge) => {
+      const isSelected = edge.id === selectedEdgeId;
+      const visual = EDGE_VISUALS[edge.status] ?? EDGE_VISUALS.active;
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        selected: isSelected,
+        animated: visual.animated ?? false,
+        style: {
+          stroke: isSelected ? "#e6edf3" : visual.stroke,
+          strokeWidth: isSelected ? 3 : visual.width,
+          strokeDasharray: visual.dash,
+        },
+      };
+    });
+  }, [networkState, selectedEdgeId]);
 
   const [nodes, setNodes, onNodesChange] =
     useNodesState<Node<NetworkNodeData>>(networkNodes);
@@ -71,24 +101,17 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
 
   const onNodeClick = useCallback(
     (_event: MouseEvent, node: Node<NetworkNodeData>) => {
-      setSelectedNodeId(node.id);
+      onSelectNode(node.id);
     },
-    [],
+    [onSelectNode],
   );
 
-  const isolateNode = useCallback(async () => {
-    if (!selectedNode) return;
-
-    const nodeId = selectedNode.id;
-
-    try {
-      await injectFault("kill_node", nodeId);
-      onEvent(`Isolation requested for node ${nodeId}.`);
-    } catch (error) {
-      console.error("Failed to isolate node:", error);
-      onEvent(`Failed to isolate node ${nodeId}.`);
-    }
-  }, [selectedNode, onEvent]);
+  const onEdgeClick = useCallback(
+    (_event: MouseEvent, edge: Edge) => {
+      onSelectEdge(edge.id);
+    },
+    [onSelectEdge],
+  );
 
   return (
     <div className="network-container">
@@ -100,6 +123,7 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
           fitView
         >
           <Background />
@@ -108,7 +132,8 @@ function NetworkGraph({ networkState, onEvent }: NetworkGraphProps) {
 
       <NodeInspector
         node={selectedNode}
-        onIsolate={isolateNode}
+        onIsolate={onIsolateSelected}
+        disabled={actionPending}
       />
     </div>
   );

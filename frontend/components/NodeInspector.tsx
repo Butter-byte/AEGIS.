@@ -6,9 +6,10 @@ import type { NetworkNodeData } from "../types/network";
 type NodeInspectorProps = {
   node: Node<NetworkNodeData> | null;
   onIsolate: () => void;
+  disabled?: boolean;
 };
 
-function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
+function NodeInspector({ node, onIsolate, disabled = false }: NodeInspectorProps) {
   const [isRecovering, setIsRecovering] = useState(false);
 
   if (!node) {
@@ -64,11 +65,11 @@ function NodeInspector({ node, onIsolate }: NodeInspectorProps) {
       </div>
 
       <div className="inspector-actions">
-        <button onClick={onIsolate} disabled={isRecovering}>
+        <button onClick={onIsolate} disabled={isRecovering || disabled}>
           ISOLATE NODE
         </button>
 
-        <button onClick={handleRecovery} disabled={isRecovering}>
+        <button onClick={handleRecovery} disabled={isRecovering || disabled}>
           {isRecovering ? "RECOVERING..." : "TRIGGER RECOVERY"}
         </button>
       </div>
