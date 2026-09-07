@@ -16,14 +16,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api import errors, routes, ws
 from backend.api.context import AppContext
 
-# Comma-separated list of allowed browser origins. Default keeps the Vite dev
-# server working with no configuration; containers pass AEGIS_CORS_ORIGINS.
-_DEFAULT_CORS_ORIGINS = "http://localhost:5173"
+_DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://aegis-77d2-826zhztlq-butter-byte-6186.vercel.app",
+]
 
 
 def _cors_origins() -> list[str]:
-    raw = os.getenv("AEGIS_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    raw = os.getenv("AEGIS_CORS_ORIGINS", "")
+    origins = list(_DEFAULT_CORS_ORIGINS)
+    if raw:
+        for origin in raw.split(","):
+            cleaned = origin.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+    return origins
 
 
 @asynccontextmanager
@@ -47,6 +55,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
+        allow_origin_regex=r"^https://.*\.vercel\.app$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
