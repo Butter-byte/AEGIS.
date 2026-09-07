@@ -4,13 +4,13 @@ import type {
   RecoveryDiagnosis,
   RecoveryPhase,
   RecoveryRunResult,
-  RunOutcome,
   SimulationResult,
 } from "../types/network";
+import { OUTCOME_META } from "../lib/pipelineStages";
 
-// Read-only recovery console. Receives the authoritative RecoveryRunResult and
-// the live progress phase; renders both. It never calls a backend API, never
-// decides an outcome, and never mutates network state.
+// Read-only recovery DETAIL view — "why did AEGIS decide this?". The high-level
+// pipeline "what happened?" lives in the PipelineBar. This never calls a backend
+// API, never decides an outcome, and never mutates network state.
 
 type RecoveryPanelProps = {
   result: RecoveryRunResult | null;
@@ -18,15 +18,6 @@ type RecoveryPanelProps = {
   running: boolean;
   error: string | null;
   onClose: () => void;
-};
-
-const OUTCOME_META: Record<RunOutcome, { label: string; kind: "ok" | "warn" | "bad" | "neutral" }> = {
-  applied: { label: "APPLIED", kind: "ok" },
-  approved_pending: { label: "APPROVED — NOT EXECUTED", kind: "warn" },
-  no_plan: { label: "NO RECOVERY REQUIRED", kind: "neutral" },
-  no_safe_plan: { label: "NO SAFE PLAN", kind: "bad" },
-  diagnosis_failed: { label: "DIAGNOSIS FAILED", kind: "bad" },
-  error: { label: "RECOVERY ERROR", kind: "bad" },
 };
 
 function actionText(action: RecoveryAction): string {
@@ -57,111 +48,6 @@ function pct(value: number): string {
 function signedPts(value: number): string {
   const pts = value * 100;
   return `${pts >= 0 ? "+" : ""}${pts.toFixed(1)} pts`;
-}
-
-// --- pipeline stage model -------------------------------------------------
-
-type StageState = "done" | "fail" | "skip" | "active" | "pending";
-type Stage = { key: string; label: string; state: StageState; note?: string };
-
-const PHASE_ORDER: RecoveryPhase[] = [
-  "idle",
-  "diagnosing",
-  "simulating",
-  "evaluating",
-  "executing",
-  "done",
-];
-
-function liveStages(phase: RecoveryPhase): Stage[] {
-  const idx = PHASE_ORDER.indexOf(phase);
-  const at = (needed: RecoveryPhase): StageState => {
-    const n = PHASE_ORDER.indexOf(needed);
-    if (idx > n) return "done";
-    if (idx === n) return "active";
-    return "pending";
-  };
-  return [
-    { key: "dx", label: "Diagnosis", state: at("diagnosing") },
-    { key: "plans", label: "Candidate plans", state: at("simulating") },
-    { key: "twin", label: "Digital Twin", state: at("simulating") },
-    { key: "safety", label: "Safety Engine", state: at("evaluating") },
-    { key: "exec", label: "Execution", state: at("executing") },
-    { key: "final", label: "Final state", state: at("done") },
-  ];
-}
-
-function resultStages(result: RecoveryRunResult): Stage[] {
-  const cands = result.candidates;
-  const anyFeasible = cands.some((c) => c.simulation.feasible);
-  const anyApproved = cands.some((c) => c.safety.approved);
-
-  const dx: Stage =
-    result.outcome === "diagnosis_failed"
-      ? { key: "dx", label: "Diagnosis", state: "fail" }
-      : result.diagnosis
-        ? { key: "dx", label: "Diagnosis", state: "done" }
-        : { key: "dx", label: "Diagnosis", state: "skip" };
-
-  const plans: Stage =
-    cands.length > 0
-      ? { key: "plans", label: "Candidate plans", state: "done", note: `${cands.length}` }
-      : { key: "plans", label: "Candidate plans", state: "skip", note: "none" };
-
-  const twin: Stage =
-    cands.length === 0
-      ? { key: "twin", label: "Digital Twin", state: "skip" }
-      : anyFeasible
-        ? { key: "twin", label: "Digital Twin", state: "done" }
-        : { key: "twin", label: "Digital Twin", state: "fail", note: "all infeasible" };
-
-  const safety: Stage =
-    cands.length === 0
-      ? { key: "safety", label: "Safety Engine", state: "skip" }
-      : anyApproved
-        ? { key: "safety", label: "Safety Engine", state: "done" }
-        : { key: "safety", label: "Safety Engine", state: "fail", note: "no safe plan" };
-
-  const exec: Stage =
-    result.outcome === "applied"
-      ? { key: "exec", label: "Execution", state: "done" }
-      : result.outcome === "error"
-        ? { key: "exec", label: "Execution", state: "fail" }
-        : { key: "exec", label: "Execution", state: "skip", note: "—" };
-
-  const final: Stage =
-    result.outcome === "applied"
-      ? {
-          key: "final",
-          label: "Final state",
-          state: "done",
-          note: result.resulting_version !== null ? `v${result.resulting_version}` : undefined,
-        }
-      : { key: "final", label: "Final state", state: "skip", note: "unchanged" };
-
-  return [dx, plans, twin, safety, exec, final];
-}
-
-const STAGE_GLYPH: Record<StageState, string> = {
-  done: "✓",
-  fail: "✕",
-  skip: "—",
-  active: "●",
-  pending: "○",
-};
-
-function Stepper({ stages }: { stages: Stage[] }) {
-  return (
-    <ol className="rp-steps">
-      {stages.map((s) => (
-        <li key={s.key} className={`rp-step rp-step-${s.state}`}>
-          <span className="rp-step-glyph">{STAGE_GLYPH[s.state]}</span>
-          <span className="rp-step-label">{s.label}</span>
-          {s.note && <span className="rp-step-note">{s.note}</span>}
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 // --- sub-blocks --------------------------------------------------------------
@@ -300,11 +186,18 @@ function CandidateCard({ candidate, applied }: { candidate: CandidateResult; app
 function OutcomeBlock({ result }: { result: RecoveryRunResult }) {
   const meta = OUTCOME_META[result.outcome] ?? { label: result.outcome.toUpperCase(), kind: "bad" };
   const applied = result.outcome === "applied";
+  // `no_plan` on a healthy network means "nothing to do" — the backend's raw
+  // message ("no schema-valid candidate plans") reads like a failure, so show
+  // its own diagnosis summary instead. Still authoritative backend text.
+  const message =
+    result.outcome === "no_plan" && result.diagnosis
+      ? result.diagnosis.summary
+      : result.message;
 
   return (
     <section className={`rp-outcome rp-outcome-${meta.kind}`}>
       <div className="rp-outcome-label">{meta.label}</div>
-      <p className="rp-outcome-msg">{result.message}</p>
+      <p className="rp-outcome-msg">{message}</p>
       {applied && result.resulting_version !== null && (
         <p className="rp-outcome-detail">Network state version: {result.resulting_version}</p>
       )}
@@ -316,8 +209,6 @@ function OutcomeBlock({ result }: { result: RecoveryRunResult }) {
 // --- panel -----------------------------------------------------------------
 
 function RecoveryPanel({ result, phase, running, error, onClose }: RecoveryPanelProps) {
-  const stages = result ? resultStages(result) : liveStages(phase);
-
   return (
     <div className="recovery-panel">
       <div className="rp-head">
@@ -336,8 +227,6 @@ function RecoveryPanel({ result, phase, running, error, onClose }: RecoveryPanel
           </button>
         </div>
       </div>
-
-      <Stepper stages={stages} />
 
       {running && !result && (
         <p className="rp-progress">

@@ -50,6 +50,40 @@ def test_recovery_run_on_healthy_network_finds_no_plan(wired_client):
     assert wired_client.get("/network/state").json()["version"] == 0
 
 
+def test_reset_returns_network_to_baseline(wired_client):
+    wired_client.post("/faults", json={"type": "kill_node", "target": "N2"})
+    wired_client.post("/faults", json={"type": "congest_edge", "target": "N1-N2"})
+
+    degraded = wired_client.get("/network/state").json()
+    assert degraded["nodes"]["N2"]["status"] == "failed"
+    assert any(e["status"] != "active" for e in degraded["edges"])
+    assert degraded["active_fault_ids"]
+    assert wired_client.get("/faults").json()  # tracker has entries
+
+    wired_client.post("/network/reset")
+
+    s = wired_client.get("/network/state").json()
+    assert all(n["status"] == "healthy" for n in s["nodes"].values())
+    assert all(e["status"] == "active" for e in s["edges"])
+    assert s["active_fault_ids"] == []
+    assert wired_client.get("/faults").json() == []  # FaultInjector tracker cleared
+
+
+def test_repeated_recovery_cycle(wired_client):
+    for _ in range(2):
+        wired_client.post("/network/reset")
+
+        base = wired_client.get("/network/state").json()
+        assert all(n["status"] == "healthy" for n in base["nodes"].values())
+        assert base["active_fault_ids"] == []
+
+        wired_client.post("/faults", json={"type": "kill_node", "target": "N2"})
+        run = wired_client.post("/recovery/run").json()
+        assert run["outcome"] == "applied"
+        assert run["applied_plan_id"] is not None
+        assert wired_client.get("/network/state").json()["nodes"]["N2"]["status"] == "quarantined"
+
+
 def test_ws_stream_carries_the_whole_run(wired_client):
     wired_client.post("/faults", json={"type": "kill_node", "target": "N2"})
     with wired_client.websocket_connect("/ws") as ws:

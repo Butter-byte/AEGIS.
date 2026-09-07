@@ -211,3 +211,40 @@ def test_e2e_fault_diagnoses_and_recovers(wired_client, fault_type, target, expe
     assert run["diagnosis"]["summary"].startswith(expect)
     assert run["outcome"] == "applied"
     assert run["applied_plan_id"] is not None
+
+    if fault_type == "congest_edge":
+        # the applied plan must actually clear the congestion, not just be "applied"
+        applied = next(c["plan"] for c in run["candidates"] if c["plan"]["id"] == run["applied_plan_id"])
+        assert any(a["type"] == "reset_link" for a in applied["actions"])
+        edge = next(e for e in wired_client.get("/network/state").json()["edges"] if e["id"] == target)
+        assert edge["status"] == "active"
+
+
+def test_double_overload_yields_no_safe_plan(wired_client):
+    """Real pipeline: two overloaded nodes -> every candidate leaves a node at
+    load ratio 0.95, above the 0.90 Safety limit -> Safety rejects all of them ->
+    no_safe_plan -> the Executor never runs -> network state is untouched.
+
+    This is the deterministic proof that AEGIS does not blindly execute AI output.
+    """
+    v0 = wired_client.get("/network/state").json()["version"]
+
+    wired_client.post("/faults", json={"type": "overload_node", "target": "N7"})
+    wired_client.post("/faults", json={"type": "overload_node", "target": "N1"})
+    v_fault = wired_client.get("/network/state").json()["version"]
+
+    run = wired_client.post("/recovery/run").json()
+
+    assert run["outcome"] == "no_safe_plan"
+    assert run["applied_plan_id"] is None
+    assert run["resulting_version"] is None
+    assert len(run["candidates"]) >= 2
+    for candidate in run["candidates"]:
+        assert candidate["safety"]["approved"] is False
+        assert any(
+            v["rule"] == "node_load_limit" and v["level"] == "critical"
+            for v in candidate["safety"]["violations"]
+        )
+
+    # the network was mutated only by the two fault injections, never by recovery
+    assert wired_client.get("/network/state").json()["version"] == v_fault > v0

@@ -25,6 +25,38 @@ button {
   padding: 24px;
 }
 
+/* ErrorBoundary fallback — only rendered if the dashboard tree throws. */
+.crash {
+  max-width: 480px;
+  margin: 15vh auto 0;
+  text-align: center;
+}
+
+.crash h1 {
+  letter-spacing: 4px;
+}
+
+.crash p {
+  color: #7d8996;
+  font-size: 13px;
+}
+
+.crash button {
+  margin-top: 16px;
+  padding: 10px 18px;
+  background: #151b23;
+  color: #c9d1d9;
+  border: 1px solid #303944;
+  border-radius: 5px;
+  letter-spacing: 1px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.crash button:hover {
+  border-color: #8b949e;
+}
+
 /* ---------- HEADER ---------- */
 
 .topbar {
@@ -58,6 +90,216 @@ button {
   height: 8px;
   border-radius: 50%;
   background: #3fb950;
+}
+
+.system-status.status-ok {
+  color: #3fb950;
+}
+.system-status.status-busy {
+  color: #d29922;
+}
+.system-status.status-busy .status-dot {
+  background: #d29922;
+  animation: pl-pulse 1.2s ease-in-out infinite;
+}
+.system-status.status-down {
+  color: #f85149;
+}
+.system-status.status-down .status-dot {
+  background: #f85149;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-status.status-busy .status-dot {
+    animation: none;
+  }
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.reset-network {
+  background: #151b23;
+  color: #c9d1d9;
+  border: 1px solid #303944;
+  border-radius: 5px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.reset-network:hover:not(:disabled) {
+  border-color: #8b949e;
+}
+
+.reset-network:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- PIPELINE BAR ---------- */
+
+.pipeline-bar {
+  display: flex;
+  align-items: center;
+  background: #0f141b;
+  border: 1px solid #252d36;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+}
+
+.pipeline-bar-running {
+  border-color: #9a6700;
+}
+
+.pipeline-bar-error {
+  border-color: #b62324;
+}
+
+.pl-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pl-stage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pl-glyph {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #303944;
+  border-radius: 50%;
+  font-size: 8px;
+  color: #4a5560;
+}
+
+.pl-label {
+  font-size: 9px;
+  letter-spacing: 0.9px;
+  color: #697582;
+  white-space: nowrap;
+}
+
+.pl-note {
+  font-size: 8px;
+  font-family: monospace;
+  color: #596572;
+  white-space: nowrap;
+}
+
+.pl-arrow {
+  margin-left: auto;
+  color: #303944;
+  font-size: 11px;
+}
+
+.pl-done .pl-glyph {
+  color: #3fb950;
+  border-color: #2d6a4f;
+}
+.pl-done .pl-label {
+  color: #c9d1d9;
+}
+
+.pl-fail .pl-glyph {
+  color: #f85149;
+  border-color: #b62324;
+}
+.pl-fail .pl-label {
+  color: #e6edf3;
+}
+
+.pl-active .pl-glyph {
+  color: #d29922;
+  border-color: #9a6700;
+  animation: pl-pulse 1.4s ease-in-out infinite;
+}
+.pl-active .pl-label {
+  color: #e6edf3;
+}
+
+.pl-skip .pl-glyph {
+  color: #697582;
+}
+
+@keyframes pl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-active .pl-glyph {
+    animation: none;
+  }
+}
+
+/* ---------- TOPOLOGY LEGEND ---------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.lg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  color: #7d8996;
+}
+
+.lg::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border: 1px solid;
+  border-radius: 2px;
+}
+
+.lg-healthy::before {
+  border-color: #2d6a4f;
+}
+.lg-degraded::before {
+  border-color: #9a6700;
+}
+.lg-failed::before {
+  border-color: #b62324;
+}
+.lg-quarantined::before {
+  border-color: #3d5a80;
+}
+.lg-congested::before {
+  border-color: #d29922;
+  border-style: dashed;
+}
+.lg-failed-link::before {
+  border-color: #f85149;
+  border-style: dashed;
 }
 
 /* ---------- GRID ---------- */
@@ -104,7 +346,7 @@ button {
 /* ---------- NETWORK ---------- */
 
 .network-graph {
-  height: calc(100% - 45px);
+  height: calc(100% - 74px);
   border: 1px solid #252d36;
   border-radius: 6px;
   overflow: hidden;
@@ -178,6 +420,29 @@ button {
   color: #697582;
 }
 
+.run-recovery {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px;
+  background: #10241a;
+  color: #3fb950;
+  border: 1px solid #2d6a4f;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.run-recovery:hover:not(:disabled) {
+  border-color: #3fb950;
+}
+
+.run-recovery:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---------- EVENT LOG ---------- */
 
 .event-log {
@@ -216,6 +481,13 @@ button {
 
 .network-node.quarantined {
   border-color: #3d5a80;
+}
+
+/* Click-selected node — the fault target. Must stand out on a 15-node graph
+   regardless of status colour. */
+.react-flow__node.selected .network-node {
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px #58a6ff, 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .node-header {
@@ -460,6 +732,39 @@ button {
   background: #697582;
 }
 
+.event-item.event-fault {
+  color: #d0d7de;
+}
+.event-item.event-fault .event-dot {
+  background: #d29922;
+}
+.event-item.event-ok .event-dot {
+  background: #3fb950;
+}
+.event-item.event-bad {
+  color: #e6edf3;
+}
+.event-item.event-bad .event-dot {
+  background: #f85149;
+}
+
+.event-boundary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0 1px;
+  color: #697582;
+  font-size: 8px;
+  letter-spacing: 1.6px;
+}
+.event-boundary::before,
+.event-boundary::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #252d36;
+}
+
 /* ---------- RECOVERY PANEL ---------- */
 
 .recovery-panel {
@@ -547,88 +852,6 @@ button {
 .rp-neutral {
   color: #8b98a5;
   border-color: #303944;
-}
-
-/* pipeline stepper */
-.rp-steps {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.rp-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border-left: 2px solid #252d36;
-  color: #596572;
-}
-
-.rp-step-glyph {
-  width: 12px;
-  text-align: center;
-  font-size: 10px;
-}
-
-.rp-step-label {
-  flex: 1;
-  font-size: 10px;
-  letter-spacing: 0.4px;
-}
-
-.rp-step-note {
-  color: #697582;
-  font-size: 9px;
-  font-family: monospace;
-}
-
-.rp-step-done {
-  color: #7d8996;
-  border-left-color: #2d6a4f;
-}
-.rp-step-done .rp-step-glyph {
-  color: #3fb950;
-}
-
-.rp-step-active {
-  color: #e6edf3;
-  border-left-color: #d29922;
-}
-.rp-step-active .rp-step-glyph {
-  color: #d29922;
-  animation: rp-pulse 1.4s ease-in-out infinite;
-}
-
-.rp-step-fail {
-  color: #d0d7de;
-  border-left-color: #b62324;
-}
-.rp-step-fail .rp-step-glyph {
-  color: #f85149;
-}
-
-.rp-step-skip .rp-step-glyph {
-  color: #4a5560;
-}
-
-@keyframes rp-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rp-step-active .rp-step-glyph {
-    animation: none;
-  }
 }
 
 .rp-progress {

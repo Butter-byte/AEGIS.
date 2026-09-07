@@ -15,6 +15,11 @@ class FaultInjector:
     def active(self) -> list[Fault]:
         return list(self._faults.values())
 
+    def reset(self) -> None:
+        """Drop all tracked faults. Called when the network is reset to the seed
+        (the seed's active_fault_ids is already empty)."""
+        self._faults.clear()
+
     def inject(self, request: FaultRequest) -> Fault:
         state = self._state.get_state()
         fault_id = new_fault_id()

@@ -22,6 +22,16 @@ export async function getNetworkState(): Promise<NetworkState> {
     return (await response.json()) as NetworkState;
 }
 
+export async function resetNetwork(): Promise<void> {
+    const response = await fetch(`${API_URL}/network/reset`, { method: "POST" });
+
+    if (!response.ok) {
+        throw new Error(`Network reset failed: ${response.status}`);
+    }
+    // The rebuilt NetworkState arrives over the WebSocket `state` stream; the
+    // caller must not construct or assume state locally.
+}
+
 export type FaultType =
     | "kill_node"
     | "degrade_node"

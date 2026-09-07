@@ -71,4 +71,5 @@ class AppContext:
 
     def reset_state(self) -> NetworkState:
         """Rebuild the network from the seed (a normal versioned mutation)."""
+        self.faults.reset()
         return self.state.reset(self.seed_factory())

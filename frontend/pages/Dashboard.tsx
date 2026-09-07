@@ -13,12 +13,23 @@ import type {
   WSEnvelope,
 } from "../types/network";
 import { connectSocket } from "../services/socket";
-import { getNetworkState, getTelemetry, injectFault, runRecovery } from "../services/api";
+import { getNetworkState, getTelemetry, injectFault, resetNetwork, runRecovery } from "../services/api";
 import type { FaultType } from "../services/api";
 import NetworkGraph from "../components/NetworkGraph";
 import RecoveryPanel from "../components/RecoveryPanel";
+import PipelineBar from "../components/PipelineBar";
 import EventLog from "../components/EventLog";
+import type { LogEntry } from "../components/EventLog";
 import { ReactFlowProvider } from "@xyflow/react";
+
+const TOPOLOGY_LEGEND: { cls: string; label: string }[] = [
+  { cls: "lg-healthy", label: "Healthy" },
+  { cls: "lg-degraded", label: "Degraded" },
+  { cls: "lg-failed", label: "Failed" },
+  { cls: "lg-quarantined", label: "Quarantined" },
+  { cls: "lg-congested", label: "Congested link" },
+  { cls: "lg-failed-link", label: "Failed link" },
+];
 
 const MAX_EVENTS = 100;
 
@@ -30,6 +41,7 @@ const FAULT_CONTROLS: { label: string; type: FaultType; on: "node" | "edge" }[] 
   { label: "Overload Node", type: "overload_node", on: "node" },
   { label: "Traffic Spike", type: "traffic_spike", on: "node" },
   { label: "Break Link", type: "cut_edge", on: "edge" },
+  { label: "Congest Link", type: "congest_edge", on: "edge" },
 ];
 
 function averageCpu(telemetry: Telemetry): number {
@@ -38,34 +50,48 @@ function averageCpu(telemetry: Telemetry): number {
   return Math.round(nodes.reduce((sum, node) => sum + node.cpu, 0) / nodes.length);
 }
 
-// Turn a real backend WS event into a log line. Every string here is derived
-// from actual payload fields — nothing is fabricated.
-function formatWebSocketEvent(message: WSEnvelope): string {
+// Turn a real backend WS event into a timeline entry. Every field is read from
+// the actual payload — nothing is fabricated. `state` frames are handled
+// separately (topology / telemetry) and are not logged.
+function formatWebSocketEvent(message: WSEnvelope): LogEntry | null {
   switch (message.type) {
     case "recovery": {
       const p = message.payload as RecoveryEventPayload;
-      if (p.stage === "started") return "Recovery started";
-      if (p.stage === "completed") return `Recovery: ${p.result?.outcome ?? "completed"}`;
-      return "Recovery event";
+      if (p.stage === "started") return { text: "Recovery started", kind: "info" };
+      if (p.stage === "completed") {
+        const outcome = p.result?.outcome ?? "completed";
+        const bad = outcome === "no_safe_plan" || outcome === "error" || outcome === "diagnosis_failed";
+        return { text: `Recovery complete — ${outcome}`, kind: bad ? "bad" : outcome === "applied" ? "ok" : "info" };
+      }
+      return null;
     }
     case "diagnosis": {
       const p = message.payload as DiagnosisEventPayload;
-      return `Diagnosis: ${p.diagnosis.summary} (${Math.round(p.diagnosis.confidence * 100)}%)`;
+      return {
+        text: `Diagnosis — ${p.diagnosis.summary} (${Math.round(p.diagnosis.confidence * 100)}%)`,
+        kind: "info",
+      };
     }
     case "simulation": {
       const p = message.payload as SimulationEventPayload;
-      return `Digital Twin: ${p.result.plan_id} ${p.result.feasible ? "feasible" : "infeasible"}`;
+      return {
+        text: `Digital Twin — ${p.result.plan_id} ${p.result.feasible ? "feasible" : "infeasible"}`,
+        kind: p.result.feasible ? "info" : "bad",
+      };
     }
     case "safety": {
       const p = message.payload as SafetyEventPayload;
-      return `Safety: ${p.decision.plan_id} ${p.decision.approved ? "APPROVED" : "REJECTED"}`;
+      return {
+        text: `Safety Gate — ${p.decision.plan_id} ${p.decision.approved ? "APPROVED" : "REJECTED"}`,
+        kind: p.decision.approved ? "ok" : "bad",
+      };
     }
     case "error": {
       const p = message.payload as ErrorEventPayload;
-      return `System error: ${p.message ?? "unknown error"}`;
+      return { text: `System error — ${p.message ?? "unknown error"}`, kind: "bad" };
     }
     default:
-      return `System event: ${message.type}`;
+      return { text: `System event — ${message.type}`, kind: "info" };
   }
 }
 
@@ -75,14 +101,19 @@ const PHASE_ON_EVENT: Partial<Record<WSEnvelope["type"], RecoveryPhase>> = {
   safety: "evaluating",
 };
 
+const RESET_LOG: LogEntry[] = [{ text: "NETWORK RESET", kind: "boundary" }];
+
 function Dashboard() {
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [telemetryError, setTelemetryError] = useState(false);
-  const [events, setEvents] = useState<string[]>([
-    "Network initialized",
-    "All systems operational",
+  const [wsConnected, setWsConnected] = useState(false);
+  const [events, setEvents] = useState<LogEntry[]>([
+    { text: "Dashboard connected", kind: "info" },
   ]);
+
+  const logEvent = (entry: LogEntry) =>
+    setEvents((current) => [entry, ...current].slice(0, MAX_EVENTS));
 
   // Fault-injection UI state. `selected*` are the click-selected topology
   // targets; `faultInFlight` is the type currently being POSTed (blocks
@@ -107,6 +138,9 @@ function Dashboard() {
   const [recoveryView, setRecoveryView] = useState(false);
   const recoveryLock = useRef(false);
   const recoveryRunningRef = useRef(false);
+  // Mirrors recoveryResult for the (deps: []) socket handler, so it can tell
+  // when a `state` frame belongs to a run other than the one on screen.
+  const recoveryResultRef = useRef<RecoveryRunResult | null>(null);
 
   // Telemetry is a pure projection of NetworkState, so re-fetch it whenever the
   // backend commits a new state version (fault / recovery / reset). The version
@@ -133,14 +167,27 @@ function Dashboard() {
   useEffect(() => {
     const connection = connectSocket({
       onOpen: () => {
-        console.log("AEGIS WebSocket connected");
+        setWsConnected(true);
       },
 
       onMessage: (message) => {
         if (message.type === "state") {
-          const payload = message.payload as StatePayload;
-          setNetworkState(payload.state);
-          if (recoveryRunningRef.current) setRecoveryPhase("executing");
+          const next = (message.payload as StatePayload).state;
+          setNetworkState(next);
+          if (recoveryRunningRef.current) {
+            setRecoveryPhase("executing");
+          } else {
+            // A committed mutation (reset / new fault / backend restart) that is
+            // not part of the run currently on screen — dismiss the stale panel.
+            const shown = recoveryResultRef.current;
+            if (
+              shown &&
+              next.version !== shown.based_on_version &&
+              next.version !== shown.resulting_version
+            ) {
+              setRecoveryView(false);
+            }
+          }
           return;
         }
 
@@ -155,16 +202,16 @@ function Dashboard() {
           }
         }
 
-        const event = formatWebSocketEvent(message);
-        setEvents((currentEvents) => [event, ...currentEvents].slice(0, MAX_EVENTS));
+        const entry = formatWebSocketEvent(message);
+        if (entry) setEvents((current) => [entry, ...current].slice(0, MAX_EVENTS));
       },
 
       onClose: () => {
-        console.log("AEGIS WebSocket disconnected");
+        setWsConnected(false);
       },
 
-      onError: (error) => {
-        console.error("AEGIS WebSocket error:", error);
+      onError: () => {
+        setWsConnected(false);
       },
     });
 
@@ -191,6 +238,7 @@ function Dashboard() {
       // Success is only claimed after the backend 2xx response. The topology /
       // telemetry update themselves from the backend's WebSocket state frame.
       setFaultMessage({ kind: "info", text: `${type} accepted on ${target}` });
+      logEvent({ text: `Fault injected — ${type} on ${target}`, kind: "fault" });
     } catch (error) {
       setFaultMessage({
         kind: "error",
@@ -210,13 +258,16 @@ function Dashboard() {
     setRecoveryRunning(true);
     setRecoveryError(null);
     setRecoveryResult(null);
+    recoveryResultRef.current = null;
     setRecoveryPhase("diagnosing");
     setRecoveryView(true);
+    logEvent({ text: "RUN RECOVERY", kind: "boundary" });
 
     try {
       const result = await runRecovery();
       // The HTTP response is authoritative — the stepper/phase are discarded here.
       setRecoveryResult(result);
+      recoveryResultRef.current = result;
       setRecoveryPhase("done");
 
       // Step 9 resync: only a backend "applied" outcome means state changed. The
@@ -238,8 +289,38 @@ function Dashboard() {
     }
   };
 
+  const handleResetNetwork = async () => {
+    if (recoveryRunning || faultInFlight !== null) return;
+    // Clear recovery UI immediately; the topology/telemetry update themselves
+    // from the backend's WebSocket `state` frame — never fabricated here.
+    setRecoveryView(false);
+    setRecoveryResult(null);
+    recoveryResultRef.current = null;
+    setRecoveryError(null);
+    setRecoveryPhase("idle");
+    setFaultMessage(null);
+    setEvents(RESET_LOG);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    try {
+      await resetNetwork();
+    } catch (error) {
+      setFaultMessage({
+        kind: "error",
+        text: `reset failed: ${error instanceof Error ? error.message : "request error"}`,
+      });
+    }
+  };
+
   const showRecoveryPanel =
     recoveryView && (recoveryRunning || recoveryResult !== null || recoveryError !== null);
+
+  // Operational status — derived from real connection / recovery state only.
+  const status = !wsConnected
+    ? { cls: "status-down", text: "BACKEND DISCONNECTED" }
+    : recoveryRunning
+      ? { cls: "status-busy", text: "RECOVERY IN PROGRESS" }
+      : { cls: "status-ok", text: "SYSTEM OPERATIONAL" };
 
   return (
     <div className="dashboard">
@@ -250,11 +331,28 @@ function Dashboard() {
           <span>Autonomous Network Recovery System</span>
         </div>
 
-        <div className="system-status">
-          <span className="status-dot" />
-          SYSTEM OPERATIONAL
+        <div className="topbar-right">
+          <div className={`system-status ${status.cls}`}>
+            <span className="status-dot" />
+            {status.text}
+          </div>
+          <button
+            className="reset-network"
+            onClick={handleResetNetwork}
+            disabled={recoveryRunning || faultInFlight !== null}
+          >
+            RESET NETWORK
+          </button>
         </div>
       </header>
+
+      {/* AEGIS recovery pipeline — the loop, always visible */}
+      <PipelineBar
+        phase={recoveryPhase}
+        result={recoveryResult}
+        running={recoveryRunning}
+        error={recoveryError}
+      />
 
       {/* Main dashboard */}
       <main className="dashboard-grid">
@@ -262,6 +360,14 @@ function Dashboard() {
           <div className="panel-header">
             <h2>Network Topology</h2>
             <span>LIVE</span>
+          </div>
+
+          <div className="legend">
+            {TOPOLOGY_LEGEND.map(({ cls, label }) => (
+              <span key={cls} className={`lg ${cls}`}>
+                {label}
+              </span>
+            ))}
           </div>
 
           <div className="network-graph">
@@ -311,13 +417,21 @@ function Dashboard() {
           <div className="telemetry-grid">
             {(
               [
+                [
+                  "AVAILABILITY",
+                  telemetry ? `${Math.round(telemetry.network_availability * 100)}%` : null,
+                ],
+                ["ACTIVE NODES", telemetry ? `${telemetry.active_nodes}` : null],
+                [
+                  "LINK FAULTS",
+                  telemetry ? `${telemetry.failed_edges + telemetry.congested_edges}` : null,
+                ],
                 ["CPU", telemetry ? `${averageCpu(telemetry)}%` : null],
                 ["LATENCY", telemetry ? `${Math.round(telemetry.avg_latency)} ms` : null],
                 [
                   "PACKET LOSS",
                   telemetry ? `${(telemetry.total_packet_loss * 100).toFixed(1)}%` : null,
                 ],
-                ["ACTIVE NODES", telemetry ? `${telemetry.active_nodes}` : null],
               ] as const
             ).map(([label, value]) => (
               <div key={label}>
@@ -362,6 +476,14 @@ function Dashboard() {
           <p className="fault-hint">
             Click a node or link in the topology to choose a target.
           </p>
+
+          <button
+            className="run-recovery"
+            onClick={handleTriggerRecovery}
+            disabled={recoveryRunning}
+          >
+            {recoveryRunning ? "RUNNING RECOVERY…" : "RUN RECOVERY"}
+          </button>
         </section>
 
         <section className="panel event-panel">

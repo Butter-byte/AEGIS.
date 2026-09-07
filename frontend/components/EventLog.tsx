@@ -1,5 +1,13 @@
+// Operational timeline. Every entry is a real backend WS event or a real
+// frontend action (fault injection / reset) — nothing is fabricated.
+
+export type LogEntry = {
+  text: string;
+  kind: "info" | "fault" | "ok" | "bad" | "boundary";
+};
+
 type EventLogProps = {
-  events: string[];
+  events: LogEntry[];
 };
 
 function EventLog({ events }: EventLogProps) {
@@ -11,12 +19,18 @@ function EventLog({ events }: EventLogProps) {
       </div>
 
       <div className="event-list">
-        {events.map((event, index) => (
-          <div className="event-item" key={`${event}-${index}`}>
-            <span className="event-dot" />
-            <span>{event}</span>
-          </div>
-        ))}
+        {events.map((entry, index) =>
+          entry.kind === "boundary" ? (
+            <div className="event-boundary" key={index}>
+              <span>{entry.text}</span>
+            </div>
+          ) : (
+            <div className={`event-item event-${entry.kind}`} key={index}>
+              <span className="event-dot" />
+              <span>{entry.text}</span>
+            </div>
+          ),
+        )}
       </div>
     </div>
   );
