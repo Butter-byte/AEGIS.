@@ -12,3 +12,4 @@ networkx==3.4.2           # graph algorithms (used by network/ + twin/ — Sahil
 # --- test / dev ---
 pytest==8.3.4
 httpx==0.28.1             # FastAPI TestClient dependency
+python-dotenv==1.0.1      # loads .env into os.environ

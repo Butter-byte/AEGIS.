@@ -23,7 +23,7 @@ from backend.telemetry import TelemetryEngine
 from backend.faults import FaultInjector
 from backend.diagnosis import HeuristicDiagnoser
 from backend.recovery import RecoveryPlanner
-from backend.ai import QwenRecoveryPlanner
+from backend.ai import NemotronRecoveryPlanner
 from backend.simulation.twin import DigitalTwin
 from backend.safety import SafetyEngine
 
@@ -64,7 +64,7 @@ class AppContext:
             telemetry=telemetry,
             faults=faults,
             diagnoser=HeuristicDiagnoser(),
-            planner=QwenRecoveryPlanner(RecoveryPlanner()),
+            planner=NemotronRecoveryPlanner(RecoveryPlanner()),
             twin=DigitalTwin(),
             safety=SafetyEngine(),
         )

@@ -11,6 +11,15 @@ services:
       - "8000:8000"
     environment:
       AEGIS_CORS_ORIGINS: "http://localhost:5173"
+      AEGIS_LLM_ENABLED: "true"
+      AEGIS_NVIDIA_API_KEY: "${AEGIS_NVIDIA_API_KEY:-}"
+      AEGIS_NVIDIA_MODEL: "${AEGIS_NVIDIA_MODEL:-nvidia/nemotron-3.5-lightning-30b-a3b}"
+      AEGIS_OLLAMA_URL: "http://host.docker.internal:11434"
+      AEGIS_LLM_TIMEOUT: "35.0"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
