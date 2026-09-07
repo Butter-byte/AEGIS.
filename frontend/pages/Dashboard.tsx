@@ -200,14 +200,10 @@ function Dashboard() {
           if (recoveryRunningRef.current) {
             setRecoveryPhase("executing");
           } else {
-            // A committed mutation (reset / new fault / backend restart) that is
-            // not part of the run currently on screen — dismiss the stale panel.
+            // Dismiss only if network was reset / restarted (version rolled back),
+            // but not on background traffic drift where version advances normally.
             const shown = recoveryResultRef.current;
-            if (
-              shown &&
-              next.version !== shown.based_on_version &&
-              next.version !== shown.resulting_version
-            ) {
+            if (shown && next.version < shown.based_on_version) {
               setRecoveryView(false);
             }
           }

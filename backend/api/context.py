@@ -93,7 +93,7 @@ class AppContext:
                 snap = self.state.get_state()
                 mutations = drift_network_resources(snap)
                 if mutations:
-                    self.state.apply_actions(mutations)
+                    self.state.apply_actions(mutations, reason="background_traffic_drift")
             except asyncio.CancelledError:
                 break
             except Exception as exc:
