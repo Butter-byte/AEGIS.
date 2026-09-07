@@ -1,4 +1,4 @@
-"""Local LLM Recovery Planner using Qwen (via Ollama) with deterministic fallback.
+"""Local & Cloud LLM Recovery Planner using NVIDIA Nemotron / Ollama with deterministic fallback.
 
 Owner: Yyash (AI Diagnosis + Recovery Planner).
 Boundary: Advisory / data-only. Does not import state, execution, twin, or safety.
@@ -9,11 +9,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
 
-from backend.config import LLM_ENABLED, LLM_MODEL, OLLAMA_URL
+from backend.config import (
+    LLM_ENABLED,
+    LLM_MODEL,
+    LLM_TIMEOUT,
+    NVIDIA_API_KEY,
+    NVIDIA_BASE_URL,
+    NVIDIA_MODEL,
+    OLLAMA_URL,
+)
 from backend.models.common import new_plan_id, utcnow
 from backend.models.diagnosis import Diagnosis
 from backend.models.enums import NodeStatus
@@ -30,29 +39,38 @@ _CLOSED_VOCAB = {
 _MAX_ACTIONS = 6
 
 
-class QwenRecoveryPlanner:
-    """Ollama/Qwen-powered recovery planner with seamless heuristic fallback.
+class NemotronRecoveryPlanner:
+    """NVIDIA Nemotron / Ollama-powered recovery planner with seamless heuristic fallback.
 
-    Implements the `Planner` protocol required by `backend.pipeline.Pipeline`.
+    Cascade order:
+      1. NVIDIA Nemotron Cloud API (if AEGIS_NVIDIA_API_KEY is configured)
+      2. Local Ollama instance (nemotron-mini / qwen)
+      3. Deterministic Heuristic Planner (RecoveryPlanner)
     """
 
     def __init__(
         self,
         fallback_planner: RecoveryPlanner | None = None,
         *,
+        nvidia_api_key: str | None = None,
+        nvidia_model: str | None = None,
+        nvidia_base_url: str | None = None,
         model: str | None = None,
         ollama_url: str | None = None,
-        timeout: float = 4.0,
+        timeout: float | None = None,
         enabled: bool | None = None,
     ) -> None:
         self.fallback = fallback_planner or RecoveryPlanner()
+        self.nvidia_api_key = nvidia_api_key if nvidia_api_key is not None else NVIDIA_API_KEY
+        self.nvidia_model = nvidia_model or NVIDIA_MODEL
+        self.nvidia_base_url = (nvidia_base_url or NVIDIA_BASE_URL).rstrip("/")
         self.model = model or LLM_MODEL
         self.ollama_url = (ollama_url or OLLAMA_URL).rstrip("/")
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else LLM_TIMEOUT
         self.enabled = LLM_ENABLED if enabled is None else enabled
 
     def plan(self, state: NetworkState, diagnosis: Diagnosis) -> list[RecoveryPlan]:
-        """Generate candidate recovery plans, attempting Qwen first if enabled."""
+        """Generate candidate recovery plans, attempting NVIDIA Nemotron first, then Ollama, then heuristic."""
         if not self.enabled:
             return self.fallback.plan(state, diagnosis)
 
@@ -60,18 +78,58 @@ class QwenRecoveryPlanner:
         if not diagnosis.suspected_nodes and not diagnosis.suspected_edges:
             return self.fallback.plan(state, diagnosis)
 
+        # 1. Try NVIDIA Nemotron Cloud API if key is present
+        if self.nvidia_api_key:
+            try:
+                candidate_plans = self._query_nvidia(state, diagnosis)
+                if candidate_plans:
+                    print(f"[AEGIS AI] NVIDIA Nemotron ({self.nvidia_model}) successfully generated {len(candidate_plans)} candidate plan(s)")
+                    return candidate_plans
+            except Exception as exc:
+                print(f"[AEGIS AI] NVIDIA Nemotron query failed ({exc}), attempting local Ollama fallback...")
+                logger.warning("NVIDIA Nemotron failed: %s", exc)
+
+        # 2. Try Local Ollama as secondary AI tier
         try:
-            candidate_plans = self._query_qwen(state, diagnosis)
+            candidate_plans = self._query_ollama(state, diagnosis)
             if candidate_plans:
+                print(f"[AEGIS AI] Local LLM ({self.model}) successfully generated {len(candidate_plans)} candidate plan(s)")
                 return candidate_plans
         except Exception as exc:
-            logger.warning("Qwen planning failed or returned invalid output; falling back: %s", exc)
+            print(f"[AEGIS AI] Local LLM query failed ({exc}), falling back to deterministic heuristic planner.")
+            logger.warning("Local Ollama planning failed: %s", exc)
 
+        # 3. Deterministic Heuristic Fallback
         return self.fallback.plan(state, diagnosis)
 
     # --- internal LLM orchestration ------------------------------------------
 
-    def _query_qwen(self, state: NetworkState, diagnosis: Diagnosis) -> list[RecoveryPlan]:
+    def _query_nvidia(self, state: NetworkState, diagnosis: Diagnosis) -> list[RecoveryPlan]:
+        prompt = self._build_prompt(state, diagnosis)
+        endpoint = f"{self.nvidia_base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.nvidia_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {
+            "model": self.nvidia_model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 800,
+            "response_format": {"type": "json_object"},
+        }
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(endpoint, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        raw_response = data["choices"][0]["message"]["content"]
+        return self._parse_and_validate_plans(raw_response, state, diagnosis, source_label="NVIDIA Nemotron")
+
+    def _query_ollama(self, state: NetworkState, diagnosis: Diagnosis) -> list[RecoveryPlan]:
         prompt = self._build_prompt(state, diagnosis)
         endpoint = f"{self.ollama_url}/api/generate"
 
@@ -92,11 +150,52 @@ class QwenRecoveryPlanner:
             data = resp.json()
 
         raw_response = data.get("response", "{}")
-        parsed = json.loads(raw_response)
+        return self._parse_and_validate_plans(raw_response, state, diagnosis, source_label=f"Ollama {self.model}")
+
+    @staticmethod
+    def _extract_json(raw_text: str) -> dict[str, Any]:
+        raw_text = raw_text.strip()
+        try:
+            val = json.loads(raw_text)
+            if isinstance(val, dict):
+                return val
+        except Exception:
+            pass
+
+        # Check for markdown code fence ```json ... ```
+        fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", raw_text, re.DOTALL)
+        if fence_match:
+            try:
+                val = json.loads(fence_match.group(1))
+                if isinstance(val, dict):
+                    return val
+            except Exception:
+                pass
+
+        # Find outermost { ... }
+        start = raw_text.find("{")
+        end = raw_text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                val = json.loads(raw_text[start : end + 1])
+                if isinstance(val, dict):
+                    return val
+            except Exception:
+                pass
+
+        return {}
+
+    def _parse_and_validate_plans(
+        self,
+        raw_response: str,
+        state: NetworkState,
+        diagnosis: Diagnosis,
+        source_label: str = "Nemotron",
+    ) -> list[RecoveryPlan]:
+        parsed = self._extract_json(raw_response)
 
         raw_plans = parsed.get("plans") if isinstance(parsed, dict) else None
         if not isinstance(raw_plans, list) or not raw_plans:
-            # Check if model returned a single plan directly
             if isinstance(parsed, dict) and "actions" in parsed:
                 raw_plans = [parsed]
             else:
@@ -111,7 +210,6 @@ class QwenRecoveryPlanner:
             if not isinstance(actions, list) or not actions:
                 continue
 
-            # Ensure actions contain at least one effective action
             trimmed_actions = actions[:_MAX_ACTIONS]
 
             candidate_dict = {
@@ -120,13 +218,12 @@ class QwenRecoveryPlanner:
                 "based_on_version": state.version,
                 "targets_diagnosis": diagnosis.id,
                 "strategy_label": str(p.get("strategy_label", "AI Generated Plan"))[:120],
-                "rationale": str(p.get("rationale", "Plan proposed by Qwen"))[:2000],
+                "rationale": str(p.get("rationale", f"Plan proposed by {source_label}"))[:2000],
                 "actions": trimmed_actions,
                 "source": "llm",
             }
 
             try:
-                # Strictly validate through AEGIS schema validator
                 validated = parse_plan(candidate_dict, state)
                 validated_plans.append(validated)
             except (SchemaError, Exception) as val_exc:
@@ -189,3 +286,7 @@ JSON OUTPUT FORMAT:
     }}
   ]
 }}"""
+
+
+# Alias for backward compatibility
+QwenRecoveryPlanner = NemotronRecoveryPlanner

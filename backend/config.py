@@ -5,14 +5,25 @@ Threshold values here are SCAFFOLD DEFAULTS pending team agreement
 """
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from backend.models.safety import PolicyConfig
+
+# Load .env from project root if present
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_env_path)
 
 # --- recovery / LLM ---------------------------------------------------------
 
 LLM_ENABLED = os.getenv("AEGIS_LLM_ENABLED", "false").lower() in ("true", "1", "yes")
-LLM_MODEL = os.getenv("AEGIS_LLM_MODEL", "qwen2.5:3b")
+NVIDIA_API_KEY = os.getenv("AEGIS_NVIDIA_API_KEY", os.getenv("NVIDIA_API_KEY", ""))
+NVIDIA_MODEL = os.getenv("AEGIS_NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+NVIDIA_BASE_URL = os.getenv("AEGIS_NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+LLM_MODEL = os.getenv("AEGIS_LLM_MODEL", "nemotron-mini")
 OLLAMA_URL = os.getenv("AEGIS_OLLAMA_URL", "http://localhost:11434")
+LLM_TIMEOUT = float(os.getenv("AEGIS_LLM_TIMEOUT", "35.0"))
 RECOVERY_RUN_AUTO_APPLY_DEFAULT = True   # D6
 
 # --- safety policy (D2 — values are TEAM DECISION REQUIRED) --------------
