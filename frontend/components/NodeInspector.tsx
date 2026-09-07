@@ -24,7 +24,7 @@ function NodeInspector({
     );
   }
 
-  const data = node.data ?? {};
+  const data = node.data;
   const status = data.status ?? "healthy";
   const busy = disabled || recoveryRunning;
 
