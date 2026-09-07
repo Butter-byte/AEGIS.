@@ -132,6 +132,7 @@ function NetworkGraph({
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
           fitView
+          proOptions={{ hideAttribution: true }}
         >
           <Background />
         </ReactFlow>

@@ -95,16 +95,20 @@ button {
 .system-status.status-ok {
   color: #3fb950;
 }
+
 .system-status.status-busy {
   color: #d29922;
 }
+
 .system-status.status-busy .status-dot {
   background: #d29922;
   animation: pl-pulse 1.2s ease-in-out infinite;
 }
+
 .system-status.status-down {
   color: #f85149;
 }
+
 .system-status.status-down .status-dot {
   background: #f85149;
 }
@@ -214,6 +218,7 @@ button {
   color: #3fb950;
   border-color: #2d6a4f;
 }
+
 .pl-done .pl-label {
   color: #c9d1d9;
 }
@@ -222,6 +227,7 @@ button {
   color: #f85149;
   border-color: #b62324;
 }
+
 .pl-fail .pl-label {
   color: #e6edf3;
 }
@@ -231,6 +237,7 @@ button {
   border-color: #9a6700;
   animation: pl-pulse 1.4s ease-in-out infinite;
 }
+
 .pl-active .pl-label {
   color: #e6edf3;
 }
@@ -240,10 +247,12 @@ button {
 }
 
 @keyframes pl-pulse {
+
   0%,
   100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.35;
   }
@@ -284,19 +293,24 @@ button {
 .lg-healthy::before {
   border-color: #2d6a4f;
 }
+
 .lg-degraded::before {
   border-color: #9a6700;
 }
+
 .lg-failed::before {
   border-color: #b62324;
 }
+
 .lg-quarantined::before {
   border-color: #3d5a80;
 }
+
 .lg-congested::before {
   border-color: #d29922;
   border-style: dashed;
 }
+
 .lg-failed-link::before {
   border-color: #f85149;
   border-style: dashed;
@@ -357,25 +371,56 @@ button {
 .telemetry-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  border: 1px solid #252d36;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 24px;
 }
 
 .telemetry-grid div {
-  background: #151b23;
-  border: 1px solid #252d36;
-  border-radius: 6px;
-  padding: 14px;
+  padding: 16px;
+  background: #111820;
+  border-bottom: 1px solid #252d36;
+  border-right: 1px solid #252d36;
+}
+
+.telemetry-grid div:nth-child(even) {
+  border-right: none;
+}
+
+.telemetry-grid div:nth-child(n+3) {
+  border-bottom: none;
 }
 
 .telemetry-grid span {
   display: block;
   color: #697582;
   font-size: 10px;
+  letter-spacing: 1px;
   margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 .telemetry-grid strong {
-  font-size: 22px;
+  font-family: 'JetBrains Mono', monospace, inherit;
+  font-size: 26px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.telemetry-history {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.history-chart span {
+  display: block;
+  color: #697582;
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 /* ---------- FAULT CONTROLS ---------- */
@@ -465,22 +510,45 @@ button {
   border-radius: 7px;
   color: #d8dee4;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.network-node:hover {
+  box-shadow: 0 0 0 2px #303944, 0 10px 28px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
 }
 
 .network-node.healthy {
   border-color: #2d6a4f;
 }
 
+.network-node.healthy:hover {
+  box-shadow: 0 0 0 2px #2d6a4f, 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
 .network-node.degraded {
   border-color: #9a6700;
+}
+
+.network-node.degraded:hover {
+  box-shadow: 0 0 0 2px #9a6700, 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
 .network-node.failed {
   border-color: #b62324;
 }
 
+.network-node.failed:hover {
+  box-shadow: 0 0 0 2px #b62324, 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
 .network-node.quarantined {
   border-color: #3d5a80;
+}
+
+.network-node.quarantined:hover {
+  box-shadow: 0 0 0 2px #3d5a80, 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
 /* Click-selected node — the fault target. Must stand out on a 15-node graph
@@ -735,15 +803,19 @@ button {
 .event-item.event-fault {
   color: #d0d7de;
 }
+
 .event-item.event-fault .event-dot {
   background: #d29922;
 }
+
 .event-item.event-ok .event-dot {
   background: #3fb950;
 }
+
 .event-item.event-bad {
   color: #e6edf3;
 }
+
 .event-item.event-bad .event-dot {
   background: #f85149;
 }
@@ -757,6 +829,7 @@ button {
   font-size: 8px;
   letter-spacing: 1.6px;
 }
+
 .event-boundary::before,
 .event-boundary::after {
   content: "";
@@ -841,14 +914,17 @@ button {
   color: #3fb950;
   border-color: #2d6a4f;
 }
+
 .rp-bad {
   color: #f85149;
   border-color: #b62324;
 }
+
 .rp-warn {
   color: #d29922;
   border-color: #9a6700;
 }
+
 .rp-neutral {
   color: #8b98a5;
   border-color: #303944;
@@ -1000,9 +1076,11 @@ button {
 .rp-chip-node {
   border-color: #3d5a80;
 }
+
 .rp-chip-edge {
   border-color: #9a6700;
 }
+
 .rp-chip-svc {
   border-color: #2d6a4f;
 }
@@ -1192,14 +1270,17 @@ button {
   border-color: #2d6a4f;
   background: #0e1712;
 }
+
 .rp-outcome-bad {
   border-color: #b62324;
   background: #1c1214;
 }
+
 .rp-outcome-warn {
   border-color: #9a6700;
   background: #1b1710;
 }
+
 .rp-outcome-neutral {
   border-color: #303944;
 }

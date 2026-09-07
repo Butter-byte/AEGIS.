@@ -21,6 +21,7 @@ import PipelineBar from "../components/PipelineBar";
 import EventLog from "../components/EventLog";
 import type { LogEntry } from "../components/EventLog";
 import { ReactFlowProvider } from "@xyflow/react";
+import { Sparkline } from "../components/Sparkline";
 
 const TOPOLOGY_LEGEND: { cls: string; label: string }[] = [
   { cls: "lg-healthy", label: "Healthy" },
@@ -111,6 +112,28 @@ function Dashboard() {
   const [events, setEvents] = useState<LogEntry[]>([
     { text: "Dashboard connected", kind: "info" },
   ]);
+
+  const [cpuHistory, setCpuHistory] = useState<number[]>(Array(30).fill(0));
+  const [latencyHistory, setLatencyHistory] = useState<number[]>(Array(30).fill(0));
+  const telemetryRef = useRef<Telemetry | null>(null);
+
+  useEffect(() => {
+    telemetryRef.current = telemetry;
+  }, [telemetry]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCpuHistory((prev) => {
+        const val = telemetryRef.current ? averageCpu(telemetryRef.current) : 0;
+        return [...prev.slice(1), val];
+      });
+      setLatencyHistory((prev) => {
+        const val = telemetryRef.current ? Math.round(telemetryRef.current.avg_latency) : 0;
+        return [...prev.slice(1), val];
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const logEvent = (entry: LogEntry) =>
     setEvents((current) => [entry, ...current].slice(0, MAX_EVENTS));
@@ -415,30 +438,33 @@ function Dashboard() {
           </div>
 
           <div className="telemetry-grid">
-            {(
-              [
-                [
-                  "AVAILABILITY",
-                  telemetry ? `${Math.round(telemetry.network_availability * 100)}%` : null,
-                ],
-                ["ACTIVE NODES", telemetry ? `${telemetry.active_nodes}` : null],
-                [
-                  "LINK FAULTS",
-                  telemetry ? `${telemetry.failed_edges + telemetry.congested_edges}` : null,
-                ],
-                ["CPU", telemetry ? `${averageCpu(telemetry)}%` : null],
-                ["LATENCY", telemetry ? `${Math.round(telemetry.avg_latency)} ms` : null],
-                [
-                  "PACKET LOSS",
-                  telemetry ? `${(telemetry.total_packet_loss * 100).toFixed(1)}%` : null,
-                ],
-              ] as const
-            ).map(([label, value]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <strong>{telemetryError ? "—" : value ?? "…"}</strong>
-              </div>
-            ))}
+            <div>
+              <span>CPU</span>
+              <strong>{telemetryError ? "—" : (telemetry ? `${averageCpu(telemetry)}%` : "…")}</strong>
+            </div>
+            <div>
+              <span>LATENCY</span>
+              <strong>{telemetryError ? "—" : (telemetry ? `${Math.round(telemetry.avg_latency)} ms` : "…")}</strong>
+            </div>
+            <div>
+              <span>PACKET LOSS</span>
+              <strong>{telemetryError ? "—" : (telemetry ? `${(telemetry.total_packet_loss * 100).toFixed(1)}%` : "…")}</strong>
+            </div>
+            <div>
+              <span>ACTIVE NODES</span>
+              <strong>{telemetryError ? "—" : (telemetry ? `${telemetry.active_nodes}` : "…")}</strong>
+            </div>
+          </div>
+
+          <div className="telemetry-history">
+            <div className="history-chart">
+              <span>CPU HISTORY</span>
+              <Sparkline data={cpuHistory} color="#00ff66" gradientId="cpuGradient" />
+            </div>
+            <div className="history-chart">
+              <span>LATENCY HISTORY</span>
+              <Sparkline data={latencyHistory} color="#58a6ff" gradientId="latencyGradient" />
+            </div>
           </div>
         </section>
 
