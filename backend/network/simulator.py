@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import random
 
 import networkx as nx
 
@@ -53,59 +54,91 @@ class NetworkModel:
                 mutations.append(set_edge(edge.id, status=expected.value))
         return mutations
 
+_CORE_NODES = {"N1", "N5", "N10", "N15"}
+_AGG_NODES = {"N2", "N4", "N6", "N8", "N11"}
+_EDGE_NODES = {"N3", "N7", "N9", "N12", "N13", "N14"}
+
+
 def build_seed() -> NetworkState:
-    """Build the canonical 15-node seed used by StateManager."""
+    """Build the canonical 15-node seed with dynamic, heterogeneous resource allocation."""
     node_ids = [f"N{i}" for i in range(1, 16)]
-    nodes = {
-        node_id: NodeState(
+    nodes: dict[str, NodeState] = {}
+
+    for node_id in node_ids:
+        if node_id in _CORE_NODES:
+            # Core backbone routers: high capacity, low latency
+            capacity = round(random.uniform(1800.0, 2400.0), 1)
+            load = round(random.uniform(400.0, 800.0), 1)
+            latency = round(random.uniform(3.5, 7.5), 1)
+            cpu = round(random.uniform(25.0, 45.0), 1)
+        elif node_id in _AGG_NODES:
+            # Aggregation switches: medium capacity, balanced latency
+            capacity = round(random.uniform(1100.0, 1600.0), 1)
+            load = round(random.uniform(300.0, 600.0), 1)
+            latency = round(random.uniform(7.0, 13.0), 1)
+            cpu = round(random.uniform(28.0, 48.0), 1)
+        else:
+            # Edge compute / access nodes: standard capacity, higher latency
+            capacity = round(random.uniform(750.0, 1100.0), 1)
+            load = round(random.uniform(200.0, 450.0), 1)
+            latency = round(random.uniform(11.0, 18.0), 1)
+            cpu = round(random.uniform(20.0, 42.0), 1)
+
+        nodes[node_id] = NodeState(
             id=node_id,
             status=NodeStatus.healthy,
-            cpu_percent=35.0,
-            latency_ms=12.0,
+            cpu_percent=cpu,
+            latency_ms=latency,
             packet_loss_percent=0.0,
-            capacity=1000.0,
-            load=450.0,
+            capacity=capacity,
+            load=load,
         )
-        for node_id in node_ids
-    }
 
     links = [
         (f"N{i}", f"N{i + 1}") for i in range(1, 15)
     ] + [("N1", "N5"), ("N5", "N10"), ("N10", "N15"), ("N1", "N15")]
-    edges = [
-        EdgeState(
-            id=edge_id_for(source, target),
-            source=min(source, target),
-            target=max(source, target),
-            bandwidth_mbps=10000.0,
-            latency_ms=5.0,
-            packet_loss_percent=0.0,
-            utilization_percent=45.0,
-            status=EdgeStatus.active,
+
+    edges = []
+    for source, target in links:
+        s_min, s_max = min(source, target), max(source, target)
+        is_backbone = (s_min, s_max) in {("N1", "N5"), ("N5", "N10"), ("N10", "N15"), ("N1", "N15")}
+        bw = 20000.0 if is_backbone else 10000.0
+        lat = round(random.uniform(2.0, 4.5), 1) if is_backbone else round(random.uniform(4.5, 8.5), 1)
+        util = round(random.uniform(30.0, 55.0), 1) if is_backbone else round(random.uniform(25.0, 60.0), 1)
+
+        edges.append(
+            EdgeState(
+                id=edge_id_for(source, target),
+                source=s_min,
+                target=s_max,
+                bandwidth_mbps=bw,
+                latency_ms=lat,
+                packet_loss_percent=0.0,
+                utilization_percent=util,
+                status=EdgeStatus.active,
+            )
         )
-        for source, target in links
-    ]
 
     services = {
         "svc-auth": ServiceState(
             id="svc-auth",
             host_node="N2",
             path=[],
-            required_bandwidth=250.0,
+            required_bandwidth=round(random.uniform(220.0, 280.0), 1),
             status=ServiceStatus.running,
         ),
         "svc-payment": ServiceState(
             id="svc-payment",
             host_node="N7",
             path=[],
-            required_bandwidth=500.0,
+            required_bandwidth=round(random.uniform(450.0, 550.0), 1),
             status=ServiceStatus.running,
         ),
         "svc-api": ServiceState(
             id="svc-api",
             host_node="N11",
             path=[],
-            required_bandwidth=350.0,
+            required_bandwidth=round(random.uniform(320.0, 380.0), 1),
             status=ServiceStatus.running,
         ),
     }
@@ -122,6 +155,51 @@ def build_seed() -> NetworkState:
     for service in state.services.values():
         service.path = model.resolve_path(state, "N1", service.host_node) or []
     return state
+
+
+def drift_network_resources(state: NetworkState) -> list[Mutation]:
+    """Generate subtle realistic perturbations simulating dynamic operational traffic.
+
+    Safe & bounded: does not transition node health statuses; failed/quarantined nodes
+    stay inactive, while healthy nodes fluctuate within realistic operating bands.
+    """
+    mutations: list[Mutation] = []
+
+    for node in state.nodes.values():
+        if node.status in {NodeStatus.failed, NodeStatus.quarantined}:
+            continue
+
+        # Subtle drift
+        delta_cpu = round(random.uniform(-2.5, 2.5), 1)
+        new_cpu = round(max(15.0, min(70.0, node.cpu_percent + delta_cpu)), 1)
+
+        delta_lat = round(random.uniform(-0.6, 0.6), 1)
+        new_lat = round(max(2.0, min(35.0, node.latency_ms + delta_lat)), 1)
+
+        delta_load = round(random.uniform(-18.0, 18.0), 1)
+        new_load = round(max(50.0, min(node.capacity * 0.85, node.load + delta_load)), 1)
+
+        if (
+            new_cpu != node.cpu_percent
+            or new_lat != node.latency_ms
+            or new_load != node.load
+        ):
+            mutations.append(set_node(node.id, cpu_percent=new_cpu, latency_ms=new_lat, load=new_load))
+
+    for edge in state.edges:
+        if edge.status == EdgeStatus.failed:
+            continue
+
+        delta_util = round(random.uniform(-2.0, 2.0), 1)
+        new_util = round(max(15.0, min(80.0, edge.utilization_percent + delta_util)), 1)
+
+        delta_lat = round(random.uniform(-0.3, 0.3), 1)
+        new_lat = round(max(1.5, min(25.0, edge.latency_ms + delta_lat)), 1)
+
+        if new_util != edge.utilization_percent or new_lat != edge.latency_ms:
+            mutations.append(set_edge(edge.id, utilization_percent=new_util, latency_ms=new_lat))
+
+    return mutations
 
 
 def to_graph(state: NetworkState) -> nx.Graph:

@@ -503,7 +503,7 @@ button {
 /* ---------- AEGIS NETWORK NODE ---------- */
 
 .network-node {
-  width: 170px;
+  width: 190px;
   padding: 12px;
   background: #111820;
   border: 1px solid #303944;
@@ -596,25 +596,54 @@ button {
 
 .node-metrics {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
 }
 
 .node-metrics div {
   background: #171e27;
   border-radius: 4px;
-  padding: 7px;
+  padding: 6px 4px;
+  text-align: center;
 }
 
 .node-metrics span {
   display: block;
   color: #697582;
   font-size: 8px;
-  margin-bottom: 3px;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
 }
 
 .node-metrics strong {
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.node-resource-bar {
+  width: 100%;
+  height: 4px;
+  background: #1e2631;
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.node-resource-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+.fill-low {
+  background: #3fb950;
+}
+
+.fill-mid {
+  background: #d29922;
+}
+
+.fill-high {
+  background: #f85149;
 }
 
 .network-node .react-flow__handle {
@@ -700,13 +729,13 @@ button {
 
 .inspector-metrics {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 14px;
 }
 
 .inspector-metrics div {
-  padding: 10px;
+  padding: 10px 8px;
   background: #171e27;
   border-radius: 5px;
 }
@@ -715,11 +744,51 @@ button {
   display: block;
   color: #697582;
   font-size: 8px;
+  letter-spacing: 0.5px;
   margin-bottom: 5px;
 }
 
 .inspector-metrics strong {
-  font-size: 17px;
+  font-size: 14px;
+}
+
+.inspector-resource-section {
+  background: #171e27;
+  border-radius: 5px;
+  padding: 10px;
+  margin-top: 8px;
+}
+
+.inspector-resource-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.inspector-resource-header span {
+  color: #697582;
+  font-size: 8px;
+  letter-spacing: 0.5px;
+}
+
+.inspector-resource-header strong {
+  font-size: 12px;
+  color: #e6edf3;
+}
+
+.inspector-resource-track {
+  width: 100%;
+  height: 6px;
+  background: #252d36;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.inspector-resource-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background-color 0.4s ease;
 }
 
 .inspector-actions {

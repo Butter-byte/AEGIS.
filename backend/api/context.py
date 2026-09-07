@@ -74,3 +74,28 @@ class AppContext:
         """Rebuild the network from the seed (a normal versioned mutation)."""
         self.faults.reset()
         return self.state.reset(self.seed_factory())
+
+    async def start_background_drift(self) -> None:
+        """Periodically drift network resources to simulate live dynamic traffic."""
+        import asyncio
+        import logging
+        from backend.config import DRIFT_ENABLED, DRIFT_INTERVAL
+        from backend.network.simulator import drift_network_resources
+
+        logger = logging.getLogger(__name__)
+
+        if not DRIFT_ENABLED:
+            return
+
+        while True:
+            try:
+                await asyncio.sleep(DRIFT_INTERVAL)
+                snap = self.state.get_state()
+                mutations = drift_network_resources(snap)
+                if mutations:
+                    self.state.apply_actions(mutations, reason="background_traffic_drift")
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.debug("Background drift step skipped: %s", exc)
+

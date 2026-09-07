@@ -67,6 +67,8 @@ function NetworkGraph({
         status: node.status,
         cpu: node.cpu_percent,
         latency: node.latency_ms,
+        capacity: node.capacity,
+        load: node.load,
       },
     }));
   }, [networkState, selectedNodeId]);
