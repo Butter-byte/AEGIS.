@@ -6,6 +6,8 @@ Run: `uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1`
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 import os
 
 from fastapi import FastAPI
@@ -24,8 +26,24 @@ def _cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    drift_task = None
+    if hasattr(app.state, "ctx") and hasattr(app.state.ctx, "start_background_drift"):
+        drift_task = asyncio.create_task(app.state.ctx.start_background_drift())
+    try:
+        yield
+    finally:
+        if drift_task:
+            drift_task.cancel()
+            try:
+                await drift_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="AEGIS", version="0.1.0")
+    app = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),

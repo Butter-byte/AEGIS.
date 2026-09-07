@@ -26,6 +26,10 @@ OLLAMA_URL = os.getenv("AEGIS_OLLAMA_URL", "http://localhost:11434")
 LLM_TIMEOUT = float(os.getenv("AEGIS_LLM_TIMEOUT", "35.0"))
 RECOVERY_RUN_AUTO_APPLY_DEFAULT = True   # D6
 
+# --- background simulation / drift ------------------------------------------
+DRIFT_ENABLED = os.getenv("AEGIS_DRIFT_ENABLED", "true").lower() in ("true", "1", "yes")
+DRIFT_INTERVAL = float(os.getenv("AEGIS_DRIFT_INTERVAL", "2.5"))
+
 # --- safety policy (D2 — values are TEAM DECISION REQUIRED) --------------
 
 DEFAULT_POLICY = PolicyConfig(

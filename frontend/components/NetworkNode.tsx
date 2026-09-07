@@ -24,14 +24,40 @@ function NetworkNode({ data }: NodeProps) {
       <div className="node-metrics">
         <div>
           <span>CPU</span>
-          <strong>{nodeData.cpu ?? 32}%</strong>
+          <strong>{Math.round(nodeData.cpu ?? 32)}%</strong>
         </div>
 
         <div>
           <span>LAT</span>
-          <strong>{nodeData.latency ?? 18}ms</strong>
+          <strong>{Math.round(nodeData.latency ?? 18)}ms</strong>
+        </div>
+
+        <div>
+          <span>LOAD</span>
+          <strong>
+            {nodeData.load !== undefined && nodeData.capacity
+              ? `${Math.round((nodeData.load / nodeData.capacity) * 100)}%`
+              : "--"}
+          </strong>
         </div>
       </div>
+
+      {nodeData.load !== undefined && nodeData.capacity !== undefined && (
+        <div className="node-resource-bar" title={`Load: ${Math.round(nodeData.load)} / ${Math.round(nodeData.capacity)} units`}>
+          <div
+            className={`node-resource-fill ${
+              nodeData.load / nodeData.capacity > 0.85
+                ? "fill-high"
+                : nodeData.load / nodeData.capacity > 0.65
+                ? "fill-mid"
+                : "fill-low"
+            }`}
+            style={{
+              width: `${Math.min(100, Math.round((nodeData.load / nodeData.capacity) * 100))}%`,
+            }}
+          />
+        </div>
+      )}
 
       <Handle type="source" position={Position.Bottom} />
     </div>

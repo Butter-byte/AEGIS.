@@ -10,6 +10,8 @@ export type NetworkNodeData = {
   status?: NodeStatus;
   cpu?: number;
   latency?: number;
+  capacity?: number;
+  load?: number;
 };
 
 export type NetworkNode = {
