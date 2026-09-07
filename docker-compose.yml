@@ -1,0 +1,35 @@
+# AEGIS — smallest practical demo stack: one backend, one frontend.
+# No database, no cache, no queue, no reverse proxy, no replicas, no volumes.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: aegis-backend
+    ports:
+      - "8000:8000"
+    environment:
+      AEGIS_CORS_ORIGINS: "http://localhost:5173"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: "http://localhost:8000"
+        VITE_WS_URL: "ws://localhost:8000/ws"
+    image: aegis-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

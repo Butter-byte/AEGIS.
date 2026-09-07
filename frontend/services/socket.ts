@@ -1,6 +1,6 @@
 import type { WSEnvelope } from "../types/network";
 
-const WS_URL = "ws://localhost:8000/ws";
+const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 
 export type SocketHandlers = {
   onMessage: (message: WSEnvelope) => void;

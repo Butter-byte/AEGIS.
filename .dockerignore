@@ -1,0 +1,38 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python local / build
+.venv
+venv
+env
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Node / frontend build
+**/node_modules
+**/dist
+.vite
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea
+.vscode
+
+# Logs & local artifacts
+*.log
+
+# Not needed inside images
+tests
+docs
+frontend/docs
+AEGIS_Creation_Roadmap.pdf
+docker-compose.yml
+**/Dockerfile
+.dockerignore

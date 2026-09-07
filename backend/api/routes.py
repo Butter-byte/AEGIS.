@@ -25,6 +25,14 @@ def _ctx(request: Request):
     return request.app.state.ctx
 
 
+# --- liveness ----------------------------------------------------------------
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Cheap liveness probe — no AppContext access, used by the Docker healthcheck."""
+    return {"status": "ok"}
+
+
 # --- network state (foundation, fully implemented) -----------------------
 
 @router.get("/network/state", response_model=NetworkState)
